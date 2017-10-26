@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2017 RidgeCrest Herbals. All Rights Reserved. -->
+<services
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
+
+    <service verb="authorize" noun="Payment" type="script"
+            location="component://mantle-braintree/service/mantle/account/script/Authorize.groovy">
+        <in-parameters>
+            <parameter name="productStoreId" required="true"/>
+            <parameter name="partyId"/>
+
+            <parameter name="orderId" required="true"/>
+            <parameter name="paymentId" required="true"/>
+            <parameter name="paymentMethodId" required="true"/>
+
+            <parameter name="nonce"/>
+            <parameter name="paymentMethodToken"/>
+
+            <parameter name="firstName"/>
+            <parameter name="lastName"/>
+            <parameter name="organization"/>
+            <parameter name="areaCode" default-value=""/>
+            <parameter name="contactNumber"/>
+            <parameter name="countryCode" default-value="1"/>
+            <parameter name="emailAddress"/>
+            <parameter name="address1"/>
+            <parameter name="address2"/>
+            <parameter name="city"/>
+            <parameter name="stateProvinceGeoId"/>
+            <parameter name="postalCode"/>
+            <parameter name="countryGeoId" default-value="USA"/>
+        </in-parameters>
+    </service>
+
+    <service verb="capture" noun="Payment" type="script"
+            location="component://mantle-braintree/service/mantle/account/script/Capture.groovy">
+        <implements service="mantle.account.PaymentServices.capture#Payment"/>
+    </service>
+
+    <service verb="release" noun="Payment" type="script"
+            location="component://mantle-braintree/service/mantle/account/script/Release.groovy">
+        <implements service="mantle.account.PaymentServices.release#Payment"/>
+    </service>
+
+    <service verb="refund" noun="Payment" type="script"
+            location="component://mantle-braintree/service/mantle/account/script/Refund.groovy">
+        <implements service="mantle.account.PaymentServices.refund#Payment"/>
+    </service>
+
+    <service verb="save" noun="BraintreeResponse">
+        <in-parameters>
+            <parameter name="paymentGatewayConfigId" required="true"/>
+            <parameter name="paymentOperationEnumId" required="true"/>
+            <parameter name="successIndicator" default-value="Y"/>
+            <parameter name="payment" type="EntityValue" required="true"/>
+            <parameter name="amount" default="payment.amount" type="BigDecimal"/>
+            <parameter name="referenceNum"/>
+            <parameter name="reasonCode"/>
+            <parameter name="reasonMessage"/>
+        </in-parameters>
+        <actions>
+            <service-call name="create#mantle.account.method.PaymentGatewayResponse" in-map="context + [
+                paymentId:payment.paymentId, amountUomId:payment.amountUomId, transactionDate:ec.user.nowTimestamp,
+                resultSuccess:successIndicator=='Y'?'Y':'N', resultError:successIndicator=='Y'?'N':'Y',
+                resultDeclined:'N', resultBadExpire:'N', resultBadCardNumber:'N']"/>
+        </actions>
+    </service>
+</services>
