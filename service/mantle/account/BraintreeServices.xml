@@ -48,22 +48,4 @@
         <implements service="mantle.account.PaymentServices.refund#Payment"/>
     </service>
 
-    <service verb="save" noun="BraintreeResponse">
-        <in-parameters>
-            <parameter name="paymentGatewayConfigId" required="true"/>
-            <parameter name="paymentOperationEnumId" required="true"/>
-            <parameter name="successIndicator" default-value="Y"/>
-            <parameter name="payment" type="EntityValue" required="true"/>
-            <parameter name="amount" default="payment.amount" type="BigDecimal"/>
-            <parameter name="referenceNum"/>
-            <parameter name="reasonCode"/>
-            <parameter name="reasonMessage"/>
-        </in-parameters>
-        <actions>
-            <service-call name="create#mantle.account.method.PaymentGatewayResponse" in-map="context + [
-                paymentId:payment.paymentId, amountUomId:payment.amountUomId, transactionDate:ec.user.nowTimestamp,
-                resultSuccess:successIndicator=='Y'?'Y':'N', resultError:successIndicator=='Y'?'N':'Y',
-                resultDeclined:'N', resultBadExpire:'N', resultBadCardNumber:'N']"/>
-        </actions>
-    </service>
 </services>

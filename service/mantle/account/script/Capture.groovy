@@ -4,8 +4,6 @@
 import com.braintreegateway.BraintreeGateway
 import com.braintreegateway.Result
 import com.braintreegateway.ValidationError
-import com.braintreegateway.ValidationErrors
-import com.braintreegateway.Transaction
 import com.braintreegateway.exceptions.NotFoundException
 import org.moqui.account.braintree.BraintreeGatewayFactory
 import org.moqui.entity.EntityValue
@@ -27,7 +25,7 @@ if ("PmtBraintreeAccount" != paymentMethod.paymentMethodTypeEnumId) {
 String paymentRefNum = payment.paymentRefNum
 if (!paymentRefNum) {
     response = ec.service.sync().name("mantle.account.PaymentServices.get#AuthorizePaymentGatewayResponse")
-            .parameters([paymentId: paymentId]).call()
+            .parameters([paymentId: paymentId, paymentMethodId:paymentMethod.paymentMethodId]).call()
     paymentRefNum = response.paymentGatewayResponse.referenceNum
 }
 if (!paymentRefNum) {
@@ -38,25 +36,46 @@ if (!paymentRefNum) {
 // paymentRefNum is Braintree transaction id and we can use it to seattle the payment
 try {
     Result result = gateway.transaction().submitForSettlement(paymentRefNum)
-    if (!result.isSuccess()) {
-        for (ValidationError error : result.getErrors().getAllDeepValidationErrors()) {
-            ec.logger.error("Error ${error.attribute} (code ${error.code}) ${error.message}")
-            ec.message.addError(error.message)
-            ec.service.sync().name("mantle.account.BraintreeServices.save#BraintreeResponse").parameters([
-                    paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoCapture",
-                    reasonCode:"${error.code}", reasonMessage: "${error.message}", payment:payment, amount:amount,
-                    referenceNum:transactionId, successIndicator: 'N']).call()
+    if (result.isSuccess()) {
+        // if successful the transaction is settled or waiting to settlement
+        transaction = result.target
+
+        ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoCapture", paymentId:paymentId,
+                paymentMethodId:paymentMethod.paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
+                referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage: result.message,
+                transactionDate:ec.user.nowTimestamp, resultSuccess:"Y", resultDeclined:"N", resultError:"N",
+                resultNsf:"N", resultBadExpire:"N", resultBadCardNumber:"N"]).call()
+
+    } else {
+        // report any validation errors and return because in this case transaction object does not exist
+        List validationErrors = result.errors.allDeepValidationErrors
+        if (validationErrors) {
+            validationErrors.each {error ->
+                ec.logger.error("Error code ${error.code} - ${error.message} in ${error.attribute}")
+                ec.message.addValidationError(null, error.attribute, null, error.message, null)
+            }
+
+            return
         }
-        return
+
+        transaction = result.transaction
+
+        if (transaction) {
+            String status = transaction.status.toString()
+
+            // analyze transaction object to collect information about authorization problem
+            String responseCode = transaction.processorResponseCode
+            String responseText = transaction.processorResponseText
+
+            ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                    paymentGatewayConfigId: "RchBraintree", paymentOperationEnumId: "PgoCapture", paymentId: paymentId,
+                    paymentMethodId:paymentMethod.paymentMethodId, amountUomId: payment.amountUomId, amount: transaction.amount,
+                    referenceNum:transaction.id, responseCode: transaction.processorResponseCode, reasonMessage: responseText,
+                    transactionDate:ec.user.nowTimestamp, resultSuccess:"N", resultDeclined: "Y",
+                    resultError: "N", resultNsf: "N", resultBadExpire:"N", resultBadCardNumber: "N"]).call()
+        }
     }
-
-    Transaction transaction = result.getTarget()
-    String transactionId = transaction.getId()
-
-    // the transaction is settled
-    ec.service.sync().name("mantle.account.BraintreeServices.save#BraintreeResponse").parameters([
-            paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoCapture",
-            payment:payment, amount:amount, referenceNum:transactionId, successIndicator: 'Y']).call()
 
 } catch (NotFoundException e) {
     ec.message.addError("Transaction ${paymentRefNum} not found")

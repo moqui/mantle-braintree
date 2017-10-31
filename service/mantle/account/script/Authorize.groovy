@@ -4,12 +4,12 @@
 import com.braintreegateway.BraintreeGateway
 import com.braintreegateway.CustomerRequest
 import com.braintreegateway.Result
-import com.braintreegateway.ValidationError
 import com.braintreegateway.TransactionRequest
 import com.braintreegateway.Transaction
 import com.braintreegateway.exceptions.NotFoundException
 import org.moqui.account.braintree.BraintreeGatewayFactory
 import org.moqui.entity.EntityValue
+
 
 String paymentGatewayConfigId
 EntityValue storePaymentGateway = ec.entity.find("mantle.product.store.ProductStorePaymentGateway")
@@ -54,9 +54,12 @@ try {
     }
     Result customerResult = gateway.customer().create(customerRequest);
     if (!customerResult.isSuccess()) {
-        for (ValidationError error : customerResult.errors.allDeepValidationErrors) {
-            ec.logger.error("Error ${error.attribute} (code ${error.code}) ${error.message}")
-            ec.message.addError(error.message)
+        List validationErrors = result.errors.allDeepValidationErrors
+        if (validationErrors) {
+            validationErrors.each { error ->
+                ec.logger.error("Error ${error.code} - ${error.message} in ${error.attribute}")
+                ec.message.addValidationError(null, error.attribute, null, error.message, null)
+            }
         }
         return
     }
@@ -81,25 +84,92 @@ if (paymentMethodToken) {
 }
 
 Result result = gateway.transaction().sale(request);
-if (!result.isSuccess()) {
-    for (ValidationError error : result.getErrors().getAllDeepValidationErrors()) {
-        ec.logger.error("Error ${error.attribute} (code ${error.code}) ${error.message}")
-        ec.message.addError(error.message)
-        ec.service.sync().name("mantle.account.BraintreeServices.save#BraintreeResponse").parameters([
-                paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoAuthorize",
-                reasonCode:"${error.code}", reasonMessage: "${error.message}", payment:payment, amount:amount,
-                referenceNum:transactionId, successIndicator: 'N']).call()
-    }
-    return;
-}
 
-// transaction was finished successfully
-Transaction transaction = result.getTarget()
-String transactionId = transaction.getId()
+Transaction transaction
+
+if (result.isSuccess()) {
+    // if successful the transaction is in Authorized state
+    ec.service.sync().name("update#mantle.account.payment.Payment")
+            .parameters([paymentId:payment.paymentId, statusId:"PmntAuthorized"]).call()
+
+    transaction = result.target
+
+    String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + transaction.avsStreetAddressResponseCode)
+    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+            paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoAuthorize", paymentId:paymentId,
+            paymentMethodId:paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
+            referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage: result.message,
+            transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction.cvvResponseCode,
+            resultSuccess:"Y", resultDeclined:"N", resultError:"N", resultNsf:"N", resultBadExpire:"N",
+            resultBadCardNumber:"N"]).call()
+
+} else {
+    // report any validation errors and return because in this case transaction object does not exist
+    List validationErrors = result.errors.allDeepValidationErrors
+    if (validationErrors) {
+        validationErrors.each {error ->
+            ec.logger.error("Error ${error.code} - ${error.message} in ${error.attribute}")
+            ec.message.addValidationError(null, error.attribute, null, error.message, null)
+        }
+
+        // in no payment method token then we creates a new payment method but if transaction was not successful
+        // due to validation then the PaymentMethod stays in inconsistent state (Braintree type but w/o related
+        // information) and could not be used for other payments in the future. So, it's better to expire it.
+        if (!paymentMethodToken) {
+            EntityValue paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod')
+                    .condition('paymentMethodId', paymentMethodId).one()
+            paymentMethod.thruDate = ec.user.nowTimestamp
+            paymentMethod.update()
+        }
+
+        return
+    }
+
+    transaction = result.transaction
+
+    if (transaction) {
+        String status = transaction.status.toString()
+
+        // analyze transaction object to collect information about authorization problem
+        String responseCode = transaction.processorResponseCode
+        String responseText = transaction.processorResponseText
+
+        String resultSuccess = "N"
+        String resultDeclined = "N"
+        String resultError = "N"
+        String resultNsf = "N"
+        String resultBadExpire = "N"
+        String resultBadCardNumber = "N"
+        if (status == "PROCESSOR_DECLINED") {
+            resultDeclined = "Y"
+            if (responseCode == "2001") resultNsf = "Y"
+            if (responseCode == "2004") resultBadExpire = "Y"
+            if (responseCode == "2005") resultBadCardNumber = "Y"
+        } else if (status == "PROCESSOR_REJECTED") {
+            responseText = result.message
+            if (transaction.gatewayRejectionReason) responseText += (" (" + transaction.gatewayRejectionReason.toString() + ")")
+            resultError = "Y"
+        } else {
+            responseText = result.message
+            resultError = "Y"
+            // Perhaps another possible status is FAILED
+            ec.logger.error("Unknown authorization error: ${result.message}")
+        }
+
+        String avsCode = transaction.avsErrorResponseCode ?: (transaction.avsPostalCodeResponseCode?:"" + transaction.avsStreetAddressResponseCode?:"")
+        ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                paymentGatewayConfigId: "RchBraintree", paymentOperationEnumId: "PgoAuthorize", paymentId: paymentId,
+                paymentMethodId:paymentMethodId, amountUomId: payment.amountUomId, amount: transaction.amount,
+                referenceNum:transaction.id, responseCode: transaction.processorResponseCode, reasonMessage: responseText,
+                transactionDate:ec.user.nowTimestamp, avsResult: avsCode, cvResult: transaction.cvvResponseCode,
+                resultSuccess:resultSuccess, resultDeclined: resultDeclined, resultError: resultError, resultNsf: resultNsf,
+                resultBadExpire:resultBadExpire, resultBadCardNumber: resultBadCardNumber]).call()
+    }
+}
 
 // save information about payment method and token to make make it possible being reused
 // during other purchases
-if (!paymentMethodToken) {
+if (!paymentMethodToken && transaction) {
     EntityValue paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod')
             .condition('paymentMethodId', paymentMethodId).one()
     if (ec.entity.find('mantle.account.method.braintree.BraintreePaymentMethod').condition('paymentMethodId', paymentMethodId).count() == 0) {
@@ -108,6 +178,8 @@ if (!paymentMethodToken) {
         String token
         String instrument = transaction.paymentInstrumentType
         if ("credit_card" == instrument) {
+            // we create this object event if the transaction was unsuccessful - for history and it's possible
+            // to repeat the transaction if we want this in the future
             token = transaction.creditCard.token
             imageUrl = transaction.creditCard.imageUrl
             description = "${transaction.creditCard.cardType} ${transaction.creditCard.maskedNumber}"
@@ -139,13 +211,3 @@ if (!paymentMethodToken) {
         paymentMethod.update();
     }
 }
-
-/*
- * Store information about this transaction for further use and change the payment status
- */
-ec.service.sync().name("mantle.account.BraintreeServices.save#BraintreeResponse").parameters([
-        paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoAuthorize",
-        payment:payment, amount:amount, referenceNum:transactionId, successIndicator: 'Y']).call()
-
-ec.service.sync().name("update#mantle.account.payment.Payment")
-        .parameters([paymentId:payment.paymentId, statusId:"PmntAuthorized"]).call();
