@@ -90,9 +90,11 @@ Transaction transaction
 if (result.isSuccess()) {
     // if successful the transaction is in Authorized state
     ec.service.sync().name("update#mantle.account.payment.Payment")
-            .parameters([paymentId:payment.paymentId, statusId:"PmntAuthorized"]).call()
+            .parameters([paymentId:payment.paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId])
+            .call()
 
     transaction = result.target
+    payment.paymentGatewayConfigId = paymentGatewayConfigId
 
     String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + transaction.avsStreetAddressResponseCode)
     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
