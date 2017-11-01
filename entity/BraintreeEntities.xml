@@ -16,7 +16,7 @@ along with this software (see the LICENSE.md file). If not, see
         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-2.1.xsd">
 
-    <entity entity-name="PaymentGatewayBraintree" package="mantle.account.method.braintree">
+    <entity entity-name="PaymentGatewayBraintree" package="braintree">
         <field name="paymentGatewayConfigId" type="id" is-pk="true"/>
         <field name="merchantId" type="text-medium"><description>Merchant identifier</description></field>
         <field name="publicKey" type="text-medium"><description>Public Key</description></field>
@@ -25,7 +25,7 @@ along with this software (see the LICENSE.md file). If not, see
         <relationship type="one" related="mantle.account.method.PaymentGatewayConfig" />
     </entity>
 
-    <entity entity-name="BraintreePaymentMethod" package="mantle.account.method.braintree" cache="never">
+    <entity entity-name="BraintreePaymentMethod" package="braintree" cache="never">
         <field name="paymentMethodId" type="id" is-pk="true"/>
         <field name="paymentInstrumentType" type="id"/>
         <field name="description" type="text-medium"/>

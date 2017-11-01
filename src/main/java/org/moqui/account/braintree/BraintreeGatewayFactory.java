@@ -21,7 +21,7 @@ public class BraintreeGatewayFactory {
                     .condition("paymentGatewayConfigId", paymentGatewayConfigId)
                     .useCache(true).one();
             if (gatewayConfig != null && gatewayConfig.getString("paymentGatewayTypeEnumId").equals("PgtBraintree")) {
-                EntityValue braintreeConfig = gatewayConfig.findRelatedOne("mantle.account.method.braintree.PaymentGatewayBraintree", false, false);
+                EntityValue braintreeConfig = gatewayConfig.findRelatedOne("braintree.PaymentGatewayBraintree", false, false);
                 if (braintreeConfig != null) {
                     gateway = new BraintreeGateway(
                             "Y".equalsIgnoreCase(braintreeConfig.getString("testMode")) ? Environment.SANDBOX : Environment.PRODUCTION,

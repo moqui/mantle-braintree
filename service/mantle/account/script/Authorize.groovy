@@ -174,7 +174,7 @@ if (result.isSuccess()) {
 if (!paymentMethodToken && transaction) {
     EntityValue paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod')
             .condition('paymentMethodId', paymentMethodId).one()
-    if (ec.entity.find('mantle.account.method.braintree.BraintreePaymentMethod').condition('paymentMethodId', paymentMethodId).count() == 0) {
+    if (ec.entity.find('braintree.BraintreePaymentMethod').condition('paymentMethodId', paymentMethodId).count() == 0) {
         String description
         String imageUrl
         String token
@@ -205,7 +205,7 @@ if (!paymentMethodToken && transaction) {
             description = "PayPal ${transaction.payPalDetails.payerEmail}"
             paymentMethod.description = "Braintree: " + description;
         }
-        ec.service.sync().name("create#mantle.account.method.braintree.BraintreePaymentMethod").parameters([
+        ec.service.sync().name("create#braintree.BraintreePaymentMethod").parameters([
                 paymentMethodId:paymentMethodId, paymentInstrumentType:instrument, description:description,
                 token:token, imageUrl:imageUrl
         ]).call()
