@@ -7,7 +7,7 @@ import com.braintreegateway.Result
 import com.braintreegateway.TransactionRequest
 import com.braintreegateway.Transaction
 import com.braintreegateway.exceptions.NotFoundException
-import org.moqui.account.braintree.BraintreeGatewayFactory
+import mantle.braintree.BraintreeGatewayFactory
 import org.moqui.entity.EntityValue
 
 

@@ -1,7 +1,7 @@
 /*
  * Copyright 2017 RidgeCrest Herbals. All Rights Reserved.
  */
-package org.moqui.account.braintree;
+package mantle.braintree;
 
 import com.braintreegateway.BraintreeGateway;
 import com.braintreegateway.Environment;

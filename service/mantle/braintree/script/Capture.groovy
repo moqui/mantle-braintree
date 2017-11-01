@@ -5,7 +5,7 @@ import com.braintreegateway.BraintreeGateway
 import com.braintreegateway.Result
 import com.braintreegateway.ValidationError
 import com.braintreegateway.exceptions.NotFoundException
-import org.moqui.account.braintree.BraintreeGatewayFactory
+import mantle.braintree.BraintreeGatewayFactory
 import org.moqui.entity.EntityValue
 
 BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)

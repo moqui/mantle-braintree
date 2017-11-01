@@ -5,7 +5,7 @@
         xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
 
     <service verb="authorize" noun="Payment" type="script"
-            location="component://mantle-braintree/service/mantle/account/script/Authorize.groovy">
+            location="component://mantle-braintree/service/mantle/braintree/script/Authorize.groovy">
         <in-parameters>
             <parameter name="productStoreId" required="true"/>
             <parameter name="partyId"/>
@@ -34,17 +34,17 @@
     </service>
 
     <service verb="capture" noun="Payment" type="script"
-            location="component://mantle-braintree/service/mantle/account/script/Capture.groovy">
+            location="component://mantle-braintree/service/mantle/braintree/script/Capture.groovy">
         <implements service="mantle.account.PaymentServices.capture#Payment"/>
     </service>
 
     <service verb="release" noun="Payment" type="script"
-            location="component://mantle-braintree/service/mantle/account/script/Release.groovy">
+            location="component://mantle-braintree/service/mantle/braintree/script/Release.groovy">
         <implements service="mantle.account.PaymentServices.release#Payment"/>
     </service>
 
     <service verb="refund" noun="Payment" type="script"
-            location="component://mantle-braintree/service/mantle/account/script/Refund.groovy">
+            location="component://mantle-braintree/service/mantle/braintree/script/Refund.groovy">
         <implements service="mantle.account.PaymentServices.refund#Payment"/>
     </service>
 
