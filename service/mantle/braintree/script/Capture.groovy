@@ -1,5 +1,15 @@
 /*
- * Copyright 2017 RidgeCrest Herbals. All Rights Reserved.
+ * This software is in the public domain under CC0 1.0 Universal plus a
+ * Grant of Patent License.
+ *
+ * To the extent possible under law, the author(s) have dedicated all
+ * copyright and related and neighboring rights to this software to the
+ * public domain worldwide. This software is distributed without any
+ * warranty.
+ *
+ * You should have received a copy of the CC0 Public Domain Dedication
+ * along with this software (see the LICENSE.md file). If not, see
+ * <http://creativecommons.org/publicdomain/zero/1.0/>.
  */
 import com.braintreegateway.BraintreeGateway
 import com.braintreegateway.Result
@@ -41,7 +51,7 @@ try {
         transaction = result.target
 
         ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
-                paymentGatewayConfigId:"RchBraintree", paymentOperationEnumId:"PgoCapture", paymentId:paymentId,
+                paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoCapture", paymentId:paymentId,
                 paymentMethodId:paymentMethod.paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
                 referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage: result.message,
                 transactionDate:ec.user.nowTimestamp, resultSuccess:"Y", resultDeclined:"N", resultError:"N",
@@ -69,7 +79,7 @@ try {
             String responseText = transaction.processorResponseText
 
             ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
-                    paymentGatewayConfigId: "RchBraintree", paymentOperationEnumId: "PgoCapture", paymentId: paymentId,
+                    paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoCapture", paymentId: paymentId,
                     paymentMethodId:paymentMethod.paymentMethodId, amountUomId: payment.amountUomId, amount: transaction.amount,
                     referenceNum:transaction.id, responseCode: transaction.processorResponseCode, reasonMessage: responseText,
                     transactionDate:ec.user.nowTimestamp, resultSuccess:"N", resultDeclined: "Y",

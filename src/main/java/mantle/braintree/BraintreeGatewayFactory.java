@@ -1,5 +1,15 @@
 /*
- * Copyright 2017 RidgeCrest Herbals. All Rights Reserved.
+ * This software is in the public domain under CC0 1.0 Universal plus a
+ * Grant of Patent License.
+ *
+ * To the extent possible under law, the author(s) have dedicated all
+ * copyright and related and neighboring rights to this software to the
+ * public domain worldwide. This software is distributed without any
+ * warranty.
+ *
+ * You should have received a copy of the CC0 Public Domain Dedication
+ * along with this software (see the LICENSE.md file). If not, see
+ * <http://creativecommons.org/publicdomain/zero/1.0/>.
  */
 package mantle.braintree;
 
@@ -21,7 +31,7 @@ public class BraintreeGatewayFactory {
                     .condition("paymentGatewayConfigId", paymentGatewayConfigId)
                     .useCache(true).one();
             if (gatewayConfig != null && gatewayConfig.getString("paymentGatewayTypeEnumId").equals("PgtBraintree")) {
-                EntityValue braintreeConfig = gatewayConfig.findRelatedOne("mantle.account.method.braintree.PaymentGatewayBraintree", false, false);
+                EntityValue braintreeConfig = gatewayConfig.findRelatedOne("braintree.PaymentGatewayBraintree", false, false);
                 if (braintreeConfig != null) {
                     gateway = new BraintreeGateway(
                             "Y".equalsIgnoreCase(braintreeConfig.getString("testMode")) ? Environment.SANDBOX : Environment.PRODUCTION,
