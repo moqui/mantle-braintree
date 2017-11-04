@@ -184,42 +184,44 @@ if (result.isSuccess()) {
 if (!paymentMethodToken && transaction) {
     EntityValue paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod')
             .condition('paymentMethodId', paymentMethodId).one()
-    if (ec.entity.find('braintree.BraintreePaymentMethod').condition('paymentMethodId', paymentMethodId).count() == 0) {
-        String description
-        String imageUrl
-        String token
-        String instrument = transaction.paymentInstrumentType
-        if ("credit_card" == instrument) {
-            // we create this object event if the transaction was unsuccessful - for history and it's possible
-            // to repeat the transaction if we want this in the future
-            token = transaction.creditCard.token
-            imageUrl = transaction.creditCard.imageUrl
-            description = "${transaction.creditCard.cardType} ${transaction.creditCard.maskedNumber}"
-            paymentMethod.description = "Braintree: " + description
-            // set up thru date of the payment method according to card expiration
-            String expMonth = transaction.creditCard.expirationMonth
-            String expYear = transaction.creditCard.expirationYear
-            Calendar cal = ec.user.nowCalendar
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            cal.set(Calendar.MONTH, Integer.valueOf(expMonth))
-            cal.set(Calendar.YEAR, Integer.valueOf(expYear))
-            cal.set(Calendar.DAY_OF_MONTH, 1)
-            cal.add(Calendar.DAY_OF_MONTH, -1)
-            paymentMethod.thruDate = cal.getTime()
-        } else if ("paypal_account" == instrument) {
-            token = transaction.payPalDetails.token
-            imageUrl = transaction.payPalDetails.imageUrl
-            description = "PayPal ${transaction.payPalDetails.payerEmail}"
-            paymentMethod.description = "Braintree: " + description;
-        }
-        ec.service.sync().name("create#braintree.BraintreePaymentMethod").parameters([
-                paymentMethodId:paymentMethodId, paymentInstrumentType:instrument, description:description,
-                token:token, imageUrl:imageUrl
-        ]).call()
 
-        paymentMethod.update();
+    paymentMethod.paymentGatewayConfigId = paymentGatewayConfigId
+
+    String instrument = transaction.paymentInstrumentType
+    if ("credit_card" == instrument && ec.entity.find('mantle.account.method.CreditCard').condition('paymentMethodId', paymentMethodId).count() == 0) {
+        // we create this object event if the transaction was unsuccessful - for history and it's possible
+        // to repeat the transaction if we want this in the future
+        paymentMethod.imageUrl = transaction.creditCard.imageUrl
+        String description = "${transaction.creditCard.cardType} ${transaction.creditCard.maskedNumber}"
+        paymentMethod.paymentMethodTypeEnumId = 'PmtCreditCard'
+        paymentMethod.description = "${transaction.creditCard.cardType} ${transaction.creditCard.maskedNumber} via Braintree"
+        paymentMethod.gatewayCimId = transaction.creditCard.token
+
+        // set up thru date of the payment method according to card expiration
+        String expMonth = transaction.creditCard.expirationMonth
+        String expYear = transaction.creditCard.expirationYear
+        Calendar cal = ec.user.nowCalendar
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        cal.set(Calendar.MONTH, Integer.valueOf(expMonth))
+        cal.set(Calendar.YEAR, Integer.valueOf(expYear))
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        cal.add(Calendar.DAY_OF_MONTH, -1)
+        paymentMethod.thruDate = cal.getTime()
+
+        ec.service.sync().name("create#mantle.account.method.CreditCard").parameters([
+                paymentMethodId:paymentMethodId, token:token, imageUrl:imageUrl,
+                cardNumber:transaction.creditCard.maskedNumber, expireDate:transaction.creditCard.expirationDate
+        ]).call()
+    } else if ("paypal_account" == instrument && ec.entity.find('mantle.account.method.PayPalAccount').condition('paymentMethodId', paymentMethodId).count() == 0) {
+        paymentMethod.imageUrl = transaction.payPalDetails.imageUrl
+        paymentMethod.gatewayCimId = transaction.payPalDetails.token
+        paymentMethod.description = "${transaction.payPalDetails.payerEmail} via Braintree"
+        ec.service.sync().name("create#mantle.account.method.PayPalAccount").parameters([
+                paymentMethodId:paymentMethodId, transactionId:id]).call()
     }
+
+    paymentMethod.update();
 }

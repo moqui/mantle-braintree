@@ -25,13 +25,4 @@ along with this software (see the LICENSE.md file). If not, see
         <relationship type="one" related="mantle.account.method.PaymentGatewayConfig" />
     </entity>
 
-    <entity entity-name="BraintreePaymentMethod" package="braintree" cache="never">
-        <field name="paymentMethodId" type="id" is-pk="true"/>
-        <field name="paymentInstrumentType" type="id"/>
-        <field name="description" type="text-medium"/>
-        <field name="token" type="text-medium"/>
-        <field name="imageUrl" type="text-medium"/>
-        <relationship type="one" related="mantle.account.method.PaymentMethod"/>
-    </entity>
-
 </entities>
