@@ -14,7 +14,7 @@ along with this software (see the LICENSE.md file). If not, see
 -->
 <services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
 
-    <service verb="authorize" noun="Payment" type="script"
+    <service verb="sale" noun="Order" type="script"
             location="component://mantle-braintree/service/mantle/braintree/script/Authorize.groovy">
         <in-parameters>
             <parameter name="productStoreId" required="true"/>
