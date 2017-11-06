@@ -15,34 +15,60 @@ package mantle.braintree;
 
 import com.braintreegateway.BraintreeGateway;
 import com.braintreegateway.Environment;
-import org.moqui.entity.EntityFacade;
+import org.moqui.context.ExecutionContext;
 import org.moqui.entity.EntityValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 
 public class BraintreeGatewayFactory {
     private static final Logger logger = LoggerFactory.getLogger(BraintreeGatewayFactory.class);
-    private static Map<String, BraintreeGateway> gatewayById = new ConcurrentHashMap<>();
+    // maybe better not to cache these so conf values get updated and such?
+    // private static Map<String, BraintreeGateway> gatewayById = new ConcurrentHashMap<>();
 
-    public static BraintreeGateway getInstance(String paymentGatewayConfigId, EntityFacade entity) {
-        BraintreeGateway gateway = gatewayById.get(paymentGatewayConfigId);
+    public static Map<String, String> ccTypes = new HashMap<>();
+    static {
+        ccTypes.put("Visa", "CctVisa");
+        ccTypes.put("MasterCard", "CctMastercard");
+        ccTypes.put("American Express", "CctAmericanExpress");
+        ccTypes.put("Discover", "CctDiscover");
+        /* see: https://developers.braintreepayments.com/reference/response/credit-card/java#card_type
+        American Express
+        Carte Blanche
+        China UnionPay
+        Diners Club
+        Discover
+        JCB
+        Laser
+        Maestro
+        MasterCard
+        Solo
+        Switch
+        Visa
+        Unknown
+         */
+    }
+
+    public static BraintreeGateway getInstance(String paymentGatewayConfigId, ExecutionContext ec) {
+        if (paymentGatewayConfigId == null || paymentGatewayConfigId.isEmpty()) return null;
+        BraintreeGateway gateway = null; // gatewayById.get(paymentGatewayConfigId);
         if (gateway == null) {
-            EntityValue gatewayConfig = entity.find("mantle.account.method.PaymentGatewayConfig")
+            EntityValue gatewayConfig = ec.getEntity().find("mantle.account.method.PaymentGatewayConfig")
                     .condition("paymentGatewayConfigId", paymentGatewayConfigId)
                     .useCache(true).one();
             if (gatewayConfig != null && gatewayConfig.getString("paymentGatewayTypeEnumId").equals("PgtBraintree")) {
-                EntityValue braintreeConfig = gatewayConfig.findRelatedOne("braintree.PaymentGatewayBraintree", false, false);
+                EntityValue braintreeConfig = gatewayConfig.findRelatedOne("braintree.PaymentGatewayBraintree", true, false);
                 if (braintreeConfig != null) {
                     gateway = new BraintreeGateway(
                             "Y".equalsIgnoreCase(braintreeConfig.getString("testMode")) ? Environment.SANDBOX : Environment.PRODUCTION,
                             braintreeConfig.getString("merchantId"), braintreeConfig.getString("publicKey"),
                             braintreeConfig.getString("privateKey")
                     );
-                    gatewayById.put(paymentGatewayConfigId, gateway);
+                    // gatewayById.put(paymentGatewayConfigId, gateway);
                 }
             }
         }

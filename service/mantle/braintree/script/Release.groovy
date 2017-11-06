@@ -17,7 +17,8 @@ import com.braintreegateway.exceptions.NotFoundException
 import mantle.braintree.BraintreeGatewayFactory
 import org.moqui.entity.EntityValue
 
-BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)
+BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec)
+if (gateway == null) { ec.message.addError("Could not find Braintree gateway configuration or error connecting"); return }
 
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
 if (!payment) { ec.message.addError("Payment ${paymentId} not found"); return }

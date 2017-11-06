@@ -12,89 +12,80 @@
  * <http://creativecommons.org/publicdomain/zero/1.0/>.
  */
 import com.braintreegateway.BraintreeGateway
-import com.braintreegateway.CustomerRequest
 import com.braintreegateway.Result
 import com.braintreegateway.TransactionRequest
 import com.braintreegateway.Transaction
-import com.braintreegateway.exceptions.NotFoundException
 import mantle.braintree.BraintreeGatewayFactory
 import org.moqui.entity.EntityValue
 
-/* TODO: support multiple modes:
- - with nonce: store new payment method based on nonce
- - with paymentMethodId: use existing Braintree Vault PaymentMethod
- */
-
-
-String paymentGatewayConfigId
-EntityValue storePaymentGateway = ec.entity.find("mantle.product.store.ProductStorePaymentGateway")
-        .condition("productStoreId", productStoreId).condition("paymentInstrumentEnumId", "PiBraintreeAccount").useCache(true).one()
-if (storePaymentGateway != null) {
-    EntityValue paymentGatewayConfig = storePaymentGateway.findRelatedOne("config", true, false)
-    if (paymentGatewayConfig == null) {
-        ec.message.addError("Braintree payment gateway config not found for product store ${productStoreId}")
-        return
-    }
-    paymentGatewayConfigId = paymentGatewayConfig.paymentGatewayConfigId
-}
-BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)
-
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
-BigDecimal amount = payment.amount
+if (payment == null) { ec.message.addError("Payment ${paymentId} not found") }
+EntityValue paymentMethod = payment.'mantle.account.method.PaymentMethod'
 
-/*
- * We try to find Braintree customer object for the give partyId and create new one if not found.
- */
-try {
-    // you more interested in does it find the customer or not than in the customer object
-    gateway.customer().find(partyId)
-} catch (NotFoundException e) {
-    ec.logger.info("Braintree customer ${partyId} not found, creating new customer")
-    CustomerRequest customerRequest
-    // TODO: review overall flow, and why look up PartyDetail only if there is a logged in user?
-    if (ec.user.userId) {
-        EntityValue party = ec.entity.find("mantle.party.PartyDetail").condition('partyId', partyId).one()
-        customerRequest = new CustomerRequest().id(partyId)
-                .firstName(party.firstName).lastName(party.lastName).company(party.organizationName)
+BigDecimal amount = payment.amount
+EntityValue visit = payment.'moqui.server.Visit'
+
+if (paymentMethod == null) {
+    if (nonce) {
+        // handle passed nonce but no paymentMethodId, create a PaymentMethod
+        Map pmResult = ec.service.sync().name("mantle.braintree.BraintreeServices.create#PaymentMethodFromNonce")
+                .parameters([partyId:payment.fromPartyId, nonce:nonce, paymentId:paymentId]).call()
+        paymentMethodId = pmResult.paymentMethodId
+        paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
     } else {
-        customerRequest = new CustomerRequest().id(partyId)
-                .firstName(firstName).lastName(lastName).company(organization)
-    }
-    Result customerResult = gateway.customer().create(customerRequest)
-    if (!customerResult.isSuccess()) {
-        List validationErrors = customerResult.errors.allDeepValidationErrors
-        if (validationErrors) {
-            validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
-        }
+        ec.message.addError("To authorize must specify an existing payment method ID or a Braintree nonce")
         return
     }
-}
-
-TransactionRequest request = new TransactionRequest().amount(amount).customerId(partyId).orderId(orderId)
-
-/*
- * Parameter paymentMethodToken may contain a token if user selected one of the payment methods
- * store previously.
- */
-if (paymentMethodToken) {
-    request.paymentMethodToken(paymentMethodToken)
 } else {
-    request.paymentMethodNonce(nonce)
-    request.options().storeInVaultOnSuccess(true).done()
+    paymentMethodId = paymentMethod.paymentMethodId
 }
 
-Result result = gateway.transaction().sale(request)
+String partyId = paymentMethod?.ownerPartyId ?: payment.fromPartyId
+
+// if no gatewayCimId, store the PaymentMethod in the Vault
+if (!paymentMethod.gatewayCimId) {
+    ec.service.sync().name("mantle.braintree.BraintreeServices.store#CustomerPaymentMethod")
+            .parameters([paymentMethodId:paymentMethodId, paymentId:paymentId, validateSecurityCode:validateSecurityCode]).call()
+}
+
+// for call through interface that allows no paymentGatewayConfigId parameter
+// try getting paymentGatewayConfigId from PaymentMethod first
+if (!paymentGatewayConfigId && paymentMethod != null) paymentGatewayConfigId = paymentMethod.paymentGatewayConfigId
+/* no point in this, we need to know the Braintree Vault gateway if not on the PaymentMethod: try getting paymentGatewayConfigId from store
+   store conf meant to be used in higher level services that call this
+if (!paymentGatewayConfigId && productStoreId) {
+    EntityValue storePaymentGateway = ec.entity.find("mantle.product.store.ProductStorePaymentGateway")
+            .condition("productStoreId", productStoreId).condition("paymentInstrumentEnumId", "PiCreditCard").useCache(true).one()
+    if (storePaymentGateway != null) paymentGatewayConfigId = storePaymentGateway.paymentGatewayConfigId
+} */
+// try getting from BraintreeVaultPaymentGatewayConfigId preference
+if (!paymentGatewayConfigId) paymentGatewayConfigId = ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')
+// get gateway
+BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec)
+if (gateway == null) { ec.message.addError("Could not find Braintree gateway configuration or error connecting"); return }
+
+// do the sale transaction request
+TransactionRequest txRequest = new TransactionRequest().amount(amount).customerId(partyId).orderId(orderId)
+if (nonce) txRequest.paymentMethodNonce(nonce)
+txRequest.paymentMethodToken(paymentMethodToken)
+// getting API error, need to research: if (visit != null) { txRequest.riskData().customerIp(visit.clientIpAddress).customerBrowser(visit.initialUserAgent) }
+
+// NOTE: for PayPal one time vaulted transactions need deviceData()? see https://developers.braintreepayments.com/reference/request/transaction/sale/java#device_data
+// FUTURE: consider support for settle now with parameter or something: txRequest.options().submitForSettlement(true).done()
+// FUTURE: PO number might be useful: https://developers.braintreepayments.com/reference/request/transaction/sale/java#purchase_order_number
+// FUTURE: pass shipping address with txRequest.shipping(): https://developers.braintreepayments.com/reference/request/transaction/sale/java#shipping
+
+Result result = gateway.transaction().sale(txRequest)
 
 Transaction transaction = null
 
 if (result.isSuccess()) {
     // if successful the transaction is in Authorized state
     ec.service.sync().name("update#mantle.account.payment.Payment")
-            .parameters([paymentId:payment.paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId])
+            .parameters([paymentId:paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId])
             .call()
 
     transaction = result.target
-    payment.paymentGatewayConfigId = paymentGatewayConfigId
 
     String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + ":" + transaction.avsStreetAddressResponseCode)
     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
@@ -104,24 +95,11 @@ if (result.isSuccess()) {
             transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction.cvvResponseCode,
             resultSuccess:"Y", resultDeclined:"N", resultError:"N", resultNsf:"N", resultBadExpire:"N",
             resultBadCardNumber:"N"]).call()
-
 } else {
     // report any validation errors and return because in this case transaction object does not exist
     List validationErrors = result.errors.allDeepValidationErrors
-    if (validationErrors) {
+    if (validationErrors)
         validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
-
-        // TODO: reconsider this, review overall flow
-        // in no payment method token then we creates a new payment method but if transaction was not successful
-        // due to validation then the PaymentMethod stays in inconsistent state (Braintree type but w/o related
-        // information) and could not be used for other payments in the future. So, it's better to expire it.
-        if (!paymentMethodToken) {
-            EntityValue paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod')
-                    .condition('paymentMethodId', paymentMethodId).one()
-            paymentMethod.thruDate = ec.user.nowTimestamp
-            paymentMethod.update()
-        }
-    }
 
     transaction = result.target
     if (transaction != null) {
@@ -162,36 +140,4 @@ if (result.isSuccess()) {
                 resultSuccess:resultSuccess, resultDeclined: resultDeclined, resultError: resultError, resultNsf: resultNsf,
                 resultBadExpire:resultBadExpire, resultBadCardNumber: resultBadCardNumber]).call()
     }
-}
-
-// TODO: only do this on success? using request.options().storeInVaultOnSuccess(true) in API
-// save information about payment method and token to make make it possible being reused
-// during other purchases
-if (!paymentMethodToken && transaction != null) {
-    EntityValue paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
-
-    String instrument = transaction.paymentInstrumentType
-    if ("credit_card" == instrument && ec.entity.find('mantle.account.method.CreditCard').condition('paymentMethodId', paymentMethodId).count() == 0) {
-        // we create this object event if the transaction was unsuccessful - for history and it's possible
-        // to repeat the transaction if we want this in the future
-        paymentMethod.imageUrl = transaction.creditCard.imageUrl
-        String description = "${transaction.creditCard.cardType} ${transaction.creditCard.maskedNumber}"
-        paymentMethod.paymentMethodTypeEnumId = 'PmtCreditCard'
-        paymentMethod.description = "${transaction.creditCard.cardType} ${transaction.creditCard.maskedNumber} via Braintree"
-        paymentMethod.gatewayCimId = transaction.creditCard.token
-
-        ec.service.sync().name("create#mantle.account.method.CreditCard").parameters([
-                paymentMethodId:paymentMethodId, token:token, imageUrl:imageUrl,
-                cardNumber:transaction.creditCard.maskedNumber, expireDate:transaction.creditCard.expirationDate
-        ]).call()
-    } else if ("paypal_account" == instrument && ec.entity.find('mantle.account.method.PayPalAccount').condition('paymentMethodId', paymentMethodId).count() == 0) {
-        paymentMethod.imageUrl = transaction.payPalDetails.imageUrl
-        paymentMethod.gatewayCimId = transaction.payPalDetails.token
-        paymentMethod.description = "${transaction.payPalDetails.payerEmail} via Braintree"
-        ec.service.sync().name("create#mantle.account.method.PayPalAccount").parameters([
-                paymentMethodId:paymentMethodId, transactionId:id]).call()
-    }
-
-    paymentMethod.paymentGatewayConfigId = paymentGatewayConfigId
-    paymentMethod.update()
 }

@@ -19,10 +19,12 @@ import org.moqui.context.ExecutionContext
 import org.moqui.entity.EntityValue
 
 ExecutionContext ec = context.ec
-BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)
 
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
 if (payment == null) { ec.message.addError("Payment ${paymentId} not found"); return }
+
+BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec)
+if (gateway == null) { ec.message.addError("Could not find Braintree gateway configuration or error connecting"); return }
 
 // NOTE: don't need to make sure this is a Braintree gateway PaymentMethod, this service only called if configured on a gateway record for Braintree
 
@@ -65,6 +67,8 @@ try {
             // analyze transaction object to collect information about authorization problem
             String responseCode = transaction.processorResponseCode
             String responseText = transaction.processorResponseText
+
+            // TODO: add more detailed flags similar to code in Authorize.groovy, can fail even after authorize!
 
             ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                     paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoCapture", paymentId: paymentId,

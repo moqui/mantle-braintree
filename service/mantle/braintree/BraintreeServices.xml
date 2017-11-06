@@ -14,34 +14,6 @@ along with this software (see the LICENSE.md file). If not, see
 -->
 <services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
 
-    <service verb="sale" noun="Order" type="script"
-            location="component://mantle-braintree/service/mantle/braintree/script/Authorize.groovy">
-        <in-parameters>
-            <parameter name="productStoreId" required="true"/>
-            <parameter name="partyId"/>
-
-            <parameter name="orderId" required="true"/>
-            <parameter name="paymentId" required="true"/>
-            <parameter name="paymentMethodId" required="true"/>
-
-            <parameter name="nonce"/>
-            <parameter name="paymentMethodToken"/>
-
-            <parameter name="firstName"/>
-            <parameter name="lastName"/>
-            <parameter name="organization"/>
-            <parameter name="areaCode" default-value=""/>
-            <parameter name="contactNumber"/>
-            <parameter name="countryCode" default-value="1"/>
-            <parameter name="emailAddress"/>
-            <parameter name="address1"/>
-            <parameter name="address2"/>
-            <parameter name="city"/>
-            <parameter name="stateProvinceGeoId"/>
-            <parameter name="postalCode"/>
-            <parameter name="countryGeoId" default-value="USA"/>
-        </in-parameters>
-    </service>
     <service verb="authorize" noun="Payment" type="script"
             location="component://mantle-braintree/service/mantle/braintree/script/Authorize.groovy">
         <implements service="mantle.account.PaymentServices.authorize#Payment"/>
@@ -60,6 +32,140 @@ along with this software (see the LICENSE.md file). If not, see
         <implements service="mantle.account.PaymentServices.refund#Payment"/>
     </service>
 
+
+    <service verb="create" noun="PaymentMethodFromNonce">
+        <in-parameters>
+            <parameter name="partyId" required="true"/>
+            <parameter name="nonce" required="true"/>
+            <parameter name="paymentId"><description>If specified will associate PaymentGatewayResponse with the Payment</description></parameter>
+            <parameter name="paymentGatewayConfigId"><description>If not specified gets from BraintreeVaultPaymentGatewayConfigId user preference</description></parameter>
+            <!-- FUTURE: support a billing contactMechId parameter? -->
+        </in-parameters>
+        <out-parameters><parameter name="paymentMethodId"/></out-parameters>
+        <actions>
+            <!-- if none specified get from BraintreeVaultPaymentGatewayConfigId preference -->
+            <if condition="!paymentGatewayConfigId">
+                <set field="paymentGatewayConfigId" from="ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')"/></if>
+            <if condition="!paymentGatewayConfigId"><log level="warn" message="In create#PaymentMethodFromNonce no paymentGatewayConfigId specified or BraintreeVaultPaymentGatewayConfigId user preference found"/><return/></if>
+            <entity-find-one entity-name="braintree.PaymentGatewayBraintree" value-field="pgan"/>
+            <if condition="pgan == null">
+                <return error="true" message="Could not save Braintree payment method, no PaymentGatewayBraintree found with ID ${paymentGatewayConfigId}"/></if>
+
+            <entity-find-one entity-name="mantle.party.PartyDetail" value-field="partyDetail"><field-map field-name="partyId"/></entity-find-one>
+
+            <!-- get billing contact info, use for any not set on PaymentMethod -->
+            <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="billingContactInfo"
+                    in-map="[partyId:partyId, postalContactMechPurposeId:'PostalBilling',
+                            telecomContactMechPurposeId:'PhoneBilling', emailContactMechPurposeId:'EmailBilling']"/>
+
+            <set field="postalAddress" from="billingContactInfo.postalAddress"/>
+            <set field="stateProvinceGeo" from="billingContactInfo.postalAddressStateGeo"/>
+            <set field="telecomNumber" from="billingContactInfo.telecomNumber"/>
+            <set field="phone" from="(telecomNumber?.countryCode ? (telecomNumber.countryCode + '-') : '') + (telecomNumber?.areaCode ? (telecomNumber.areaCode + '-') : '') + telecomNumber?.contactNumber"/>
+            <set field="emailContactMech" from="billingContactInfo.emailContactMech"/>
+
+            <script><![CDATA[
+                def gateway = mantle.braintree.BraintreeGatewayFactory.getInstance((String) paymentGatewayConfigId, ec)
+
+                // see if the customer exists, if not create one
+                def customer = null
+                try { customer = gateway.customer().find((String) partyId) }
+                catch (com.braintreegateway.exceptions.NotFoundException nfe) { customer = null }
+
+                com.braintreegateway.CustomerRequest custRequest = null
+                com.braintreegateway.PaymentMethodRequest pmRequest = null
+                com.braintreegateway.CreditCardAddressRequest billAddr = null
+                if (customer == null) {
+                    custRequest = new com.braintreegateway.CustomerRequest().id((String) partyId)
+                            .firstName((String) partyDetail.firstName).lastName((String) partyDetail.lastName)
+                            .company((String) partyDetail.organizationName)
+                    if (emailContactMech?.infoString) custRequest.email((String) emailContactMech.infoString)
+                    if (phone) custRequest.phone((String) phone)
+
+                    custRequest.paymentMethodNonce((String) nonce)
+                    billAddr = custRequest.creditCard().billingAddress()
+                } else {
+                    pmRequest = new com.braintreegateway.PaymentMethodRequest().customerId((String) partyId)
+                            .paymentMethodNonce((String) nonce)
+                    billAddr = pmRequest.billingAddress()
+                }
+
+                if (postalAddress != null) {
+                    billAddr.firstName((String) partyDetail.firstName).lastName((String) partyDetail.lastName)
+                            .streetAddress((String) postalAddress.address1).locality((String) postalAddress.city)
+                            .region((String) stateProvinceGeo?.geoCodeAlpha2 ?: stateProvinceGeo?.geoCodeAlpha3)
+                            .postalCode("${postalAddress.postalCode}${postalAddress.postalCodeExt ? '-' + postalAddress.postalCodeExt : ''}")
+                            .countryCodeAlpha3((String) postalAddress.countryGeoId)
+
+                    if (paymentMethod.companyNameOnAccount) billAddr.company((String) paymentMethod.companyNameOnAccount)
+                    else if (partyDetail?.organizationName) billAddr.company((String) partyDetail.organizationName)
+
+                    if (postalAddress.address2 || postalAddress.unitNumber)
+                        billAddr.extendedAddress("${postalAddress.address2 ?: ''}${postalAddress.address2 && postalAddress.unitNumber ? ' ' : ''}${postalAddress.unitNumber ? '#' + postalAddress.unitNumber : ''}")
+                    billAddr.done()
+                }
+
+                def gatewayResult = null
+                def newPaymentMethod = null
+                if (custRequest != null) {
+                    gatewayResult = gateway.customer().create(custRequest)
+                    List paymentMethods = gatewayResult.target?.paymentMethods
+                    if (paymentMethods) newPaymentMethod = paymentMethods.get(0)
+                } else {
+                    gatewayResult = gateway.paymentMethod().create(pmRequest)
+                    newPaymentMethod = gatewayResult.target
+                }
+                String reasonMessage = gatewayResult.message
+                if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
+
+                if (gatewayResult.isSuccess()) {
+                    Map payMethMap = [gatewayCimId:newPaymentMethod.token, paymentGatewayConfigId:paymentGatewayConfigId,
+                            imageUrl:newPaymentMethod.imageUrl]
+                    if (newPaymentMethod instanceof com.braintreegateway.CreditCard) {
+                        payMethMap.paymentMethodTypeEnumId = 'PmtCreditCard'
+                        payMethMap.description = "${newPaymentMethod.cardType} ${newPaymentMethod.maskedNumber}"
+
+                        Map pmResult = ec.service.sync().name("create#mantle.account.method.PaymentMethod").parameters(payMethMap).call()
+                        paymentMethodId = pmResult.paymentMethodId
+
+                        // NOTE: using expirationMonth and expirationYear as expirationDate is MMYYYY
+                        ec.service.sync().name("create#mantle.account.method.CreditCard").parameters([
+                                paymentMethodId:paymentMethodId, cardNumber:newPaymentMethod.maskedNumber,
+                                expireDate:(newPaymentMethod.expirationMonth + '/' + newPaymentMethod.expirationYear)]).call()
+                    } else if (newPaymentMethod instanceof com.braintreegateway.PayPalAccount) {
+                        payMethMap.paymentMethodTypeEnumId = 'PmtPayPalAccount'
+                        payMethMap.description = "PayPal ${newPaymentMethod.email}"
+
+                        Map pmResult = ec.service.sync().name("create#mantle.account.method.PaymentMethod").parameters(payMethMap).call()
+                        paymentMethodId = pmResult.paymentMethodId
+
+                        ec.service.sync().name("create#mantle.account.method.PayPalAccount").parameters([
+                                paymentMethodId:paymentMethodId, expressCheckoutToken:newPaymentMethod.token,
+                                correlationId:newPaymentMethod.billingAgreementId]).call()
+                        // NOTE: any way to get/handle transactionId?
+                    }
+                    // TODO: support other payment method types over time, see: https://developers.braintreepayments.com/reference/response/payment-method/java
+
+                    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                            paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
+                            paymentMethodId:paymentMethodId, paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
+                            reasonMessage:reasonMessage, resultSuccess:'Y', resultError:'N']).call()
+                } else {
+                    List validationErrors = gatewayResult.errors.allDeepValidationErrors
+                    String reasonCode = null
+                    if (validationErrors) {
+                        for (def error in validationErrors)
+                            ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
+                        reasonCode = validationErrors.get(0).code.toString()
+                    }
+                    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                            paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
+                            paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
+                            reasonCode:reasonCode, reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
+                }
+            ]]></script>
+        </actions>
+    </service>
     <service verb="store" noun="CustomerPaymentMethod" authenticate="anonymous-all">
         <in-parameters>
             <parameter name="paymentMethodId" required="true"/>
@@ -117,13 +223,12 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="cardNumber" from="creditCard.cardNumber?.replaceAll(/\D/, 'X')"/>
             <set field="cardholderName" value="${paymentMethod.firstNameOnAccount ?: partyDetail?.firstName ?: ''} ${paymentMethod.lastNameOnAccount ?: partyDetail?.lastName ?: ''}"/>
             <script><![CDATA[
-                def gateway = mantle.braintree.BraintreeGatewayFactory.getInstance((String) paymentGatewayConfigId, ec.entity)
+                def gateway = mantle.braintree.BraintreeGatewayFactory.getInstance((String) paymentGatewayConfigId, ec)
 
                 // see if the customer exists, if not create one
                 def customer = null
-                try {
-                    customer = gateway.customer().find((String) paymentMethod.ownerPartyId)
-                } catch (com.braintreegateway.exceptions.NotFoundException nfe) { customer = null }
+                try { customer = gateway.customer().find((String) paymentMethod.ownerPartyId) }
+                catch (com.braintreegateway.exceptions.NotFoundException nfe) { customer = null }
 
                 com.braintreegateway.CustomerRequest custRequest = null
                 com.braintreegateway.CreditCardRequest ccRequest = null
@@ -135,12 +240,14 @@ along with this software (see the LICENSE.md file). If not, see
                     if (emailContactMech?.infoString) custRequest.email((String) emailContactMech.infoString)
                     if (phone) custRequest.phone((String) phone)
 
-                    ccRequest = custRequest.creditCard()
+                    ccRequest = custRequest.creditCard().customerId((String) paymentMethod.ownerPartyId)
+                            .cardholderName((String) cardholderName).expirationDate((String) creditCard.expireDate)
+                            .number((String) creditCard.cardNumber)
                 } else {
                     // create or update the credit card
                     ccRequest = new com.braintreegateway.CreditCardRequest().customerId((String) paymentMethod.ownerPartyId)
                             .cardholderName((String) cardholderName).expirationDate((String) creditCard.expireDate)
-                    if (!paymentMethod.gatewayCimId && cardNumber && !cardNumber.contains('X')) ccRequest.number((String) creditCard.cardNumber)
+                    if (!paymentMethod.gatewayCimId) ccRequest.number((String) creditCard.cardNumber)
 
                     if (validateSecurityCode) ccRequest.cvv((String) validateSecurityCode)
                     else if (creditCard.cardSecurityCode) ccRequest.cvv((String) creditCard.cardSecurityCode)
@@ -164,17 +271,18 @@ along with this software (see the LICENSE.md file). If not, see
                 }
 
                 def gatewayResult = null
-                def newGatewayCimId = null
+                def newCreditCard = null
+                String newImageUrl
                 if (customer == null) {
                     gatewayResult = gateway.customer().create(custRequest)
-                    List creditCards = gatewayResult.target.creditCards
-                    if (creditCards) newGatewayCimId = creditCards.get(0).token
+                    List creditCards = gatewayResult.target?.creditCards
+                    if (creditCards) newCreditCard = creditCards.get(0)
                 } else {
                     if (paymentMethod.gatewayCimId) {
                         gatewayResult = gateway.creditCard().update((String) paymentMethod.gatewayCimId, ccRequest)
                     } else {
                         gatewayResult = gateway.creditCard().create(ccRequest)
-                        newGatewayCimId = gatewayResult.target.token
+                        newCreditCard = gatewayResult.target
                     }
                 }
                 String reasonMessage = gatewayResult.message
@@ -186,15 +294,17 @@ along with this software (see the LICENSE.md file). If not, see
                             paymentMethodId:paymentMethodId, paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
                             reasonMessage:reasonMessage, resultSuccess:'Y', resultError:'N']).call()
 
-                    if (!newGatewayCimId) {
-                        paymentMethod.gatewayCimId = newGatewayCimId
+                    if (newGatewayCimId) {
+                        paymentMethod.gatewayCimId = newCreditCard.token
                         paymentMethod.paymentGatewayConfigId = paymentGatewayConfigId
+                        paymentMethod.imageUrl = newCreditCard.imageUrl
+                        if (!paymentMethod.description) paymentMethod.description = "${newCreditCard.cardType} ${newCreditCard.maskedNumber}"
+                        if (mantle.braintree.BraintreeGatewayFactory.ccTypes.containsKey(newCreditCard.cardType))
+                            paymentMethod.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newCreditCard.cardType)
                         paymentMethod.update()
 
                         creditCard.cardSecurityCode = null
-                        if (creditCard.cardNumber && creditCard.cardNumber.length() > 4)
-                            creditCard.cardNumber = '*'.padRight(creditCard.cardNumber.length() - 4, '*') +
-                                    creditCard.cardNumber.substring(creditCard.cardNumber.length() - 4, creditCard.cardNumber.length())
+                        creditCard.cardNumber = newCreditCard.maskedNumber
                         creditCard.update()
                     }
                 } else {
@@ -233,7 +343,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <script><![CDATA[
                 if (paymentMethod.gatewayCimId) {
-                    com.braintreegateway.BraintreeGateway gateway = mantle.braintree.BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)
+                    com.braintreegateway.BraintreeGateway gateway = mantle.braintree.BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec)
                     def gatewayResult = gateway.creditCard().delete((String) paymentMethod.gatewayCimId)
                     String reasonMessage = gatewayResult.message
                     if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
