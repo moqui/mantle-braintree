@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+This software is in the public domain under CC0 1.0 Universal plus a
+Grant of Patent License.
+
+To the extent possible under law, the author(s) have dedicated all
+copyright and related and neighboring rights to this software to the
+public domain worldwide. This software is distributed without any
+warranty.
+
+You should have received a copy of the CC0 Public Domain Dedication
+along with this software (see the LICENSE.md file). If not, see
+<http://creativecommons.org/publicdomain/zero/1.0/>.
+-->
+<entity-facade-xml type="demo">
+    <mantle.account.method.PaymentGatewayConfig paymentGatewayConfigId="BraintreeDemo" paymentGatewayTypeEnumId="PgtBraintree"
+            description="Braintree Demo"
+            authorizeServiceName="mantle.account.BraintreeServices.authorize#Payment"
+            captureServiceName="mantle.account.BraintreeServices.capture#Payment"
+            releaseServiceName="mantle.account.BraintreeServices.release#Payment"
+            refundServiceName="mantle.account.BraintreeServices.refund#Payment"/>
+
+    <!-- for production set testMode=N (testMode=Y uses Braintree sandbox) -->
+    <braintree.PaymentGatewayBraintree paymentGatewayConfigId="BraintreeDemo" merchantId="your_merchant_id"
+            publicKey="public_key" privateKey="private_key" testMode="Y"/>
+
+    <!-- to set this payment gateway on a product store add records like:
+    <mantle.product.store.ProductStorePaymentGateway productStoreId="POPC_DEFAULT" paymentInstrumentEnumId="PiCreditCard"
+            paymentGatewayConfigId="BraintreeDemo"/>
+    <mantle.product.store.ProductStorePaymentGateway productStoreId="POPC_DEFAULT" paymentInstrumentEnumId="PiPayPalAccount"
+            paymentGatewayConfigId="BraintreeDemo"/>
+    -->
+
+    <!-- these are the global settings for Braintree Vault since it is system-wide and not store-specific -->
+    <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="BraintreeVaultEnabled" preferenceValue="false"/>
+    <moqui.security.UserGroupPreference userGroupId="ALL_USERS" preferenceKey="BraintreeVaultPaymentGatewayConfigId"
+            preferenceValue="AuthorizeDotNetCimDemo"/>
+</entity-facade-xml>

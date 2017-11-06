@@ -13,30 +13,24 @@
  */
 import com.braintreegateway.BraintreeGateway
 import com.braintreegateway.Result
-import com.braintreegateway.ValidationError
 import com.braintreegateway.exceptions.NotFoundException
 import mantle.braintree.BraintreeGatewayFactory
+import org.moqui.context.ExecutionContext
 import org.moqui.entity.EntityValue
 
+ExecutionContext ec = context.ec
 BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)
 
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
-if (!payment) {
-    ec.message.addError("Payment ${paymentId} not found");
-    return
-}
+if (payment == null) { ec.message.addError("Payment ${paymentId} not found"); return }
 
-EntityValue paymentMethod = payment.findRelatedOne("method", false, false)
-if ("PmtBraintreeAccount" != paymentMethod.paymentMethodTypeEnumId) {
-    ec.message.addError("Cannot capture payment ${paymentId}, not a Braintree payment.")
-    return
-}
+// NOTE: don't need to make sure this is a Braintree gateway PaymentMethod, this service only called if configured on a gateway record for Braintree
 
 String paymentRefNum = payment.paymentRefNum
 if (!paymentRefNum) {
-    response = ec.service.sync().name("mantle.account.PaymentServices.get#AuthorizePaymentGatewayResponse")
-            .parameters([paymentId: paymentId, paymentMethodId:paymentMethod.paymentMethodId]).call()
-    paymentRefNum = response.paymentGatewayResponse.referenceNum
+    Map response = ec.service.sync().name("mantle.account.PaymentServices.get#AuthorizePaymentGatewayResponse")
+            .parameter("paymentId", paymentId).call()
+    paymentRefNum = response.paymentGatewayResponse?.referenceNum
 }
 if (!paymentRefNum) {
     ec.message.addError("Could not find authorization transaction ID (reference number) for Payment ${paymentId}")
@@ -49,29 +43,23 @@ try {
     if (result.isSuccess()) {
         // if successful the transaction is settled or waiting to settlement
         transaction = result.target
-
         ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                 paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoCapture", paymentId:paymentId,
                 paymentMethodId:paymentMethod.paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
                 referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage: result.message,
                 transactionDate:ec.user.nowTimestamp, resultSuccess:"Y", resultDeclined:"N", resultError:"N",
                 resultNsf:"N", resultBadExpire:"N", resultBadCardNumber:"N"]).call()
-
     } else {
         // report any validation errors and return because in this case transaction object does not exist
         List validationErrors = result.errors.allDeepValidationErrors
         if (validationErrors) {
-            validationErrors.each {error ->
-                ec.logger.error("Error code ${error.code} - ${error.message} in ${error.attribute}")
-                ec.message.addValidationError(null, error.attribute, null, error.message, null)
-            }
-
+            validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
+            // TODO: bad to return here without saving the PaymentGatewayResponse
             return
         }
 
-        transaction = result.transaction
-
-        if (transaction) {
+        transaction = result.target
+        if (transaction != null) {
             String status = transaction.status.toString()
 
             // analyze transaction object to collect information about authorization problem

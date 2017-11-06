@@ -13,23 +13,8 @@ along with this software (see the LICENSE.md file). If not, see
 <http://creativecommons.org/publicdomain/zero/1.0/>.
 -->
 <entity-facade-xml type="seed">
+    <moqui.basic.Enumeration description="Braintree Payments" enumId="PgtBraintree" enumTypeId="PaymentGatewayType"/>
 
-    <moqui.basic.Enumeration description="Braintree Account" enumId="PmtBraintreeAccount" enumTypeId="PaymentMethodType"/>
-    <moqui.basic.Enumeration description="Braintree Account" enumId="PiBraintreeAccount" enumTypeId="PaymentInstrument"
-            relatedEnumId="PmtPayPalAccount"/>
-    <moqui.basic.Enumeration description=" Braintree Payments" enumId="PgtBraintree" enumTypeId="PaymentGatewayType"/>
-
-    <!-- Example of entities to configure Braintree integration. Authorization service is not a replacement for
-    credit card solution and not supported by back applications directly but can be used in custom components -->
-    <!--
-    <mantle.account.method.PaymentGatewayConfig paymentGatewayConfigId="BraintreeTest" paymentGatewayTypeEnumId="PgtBraintree"
-            description="Braintree" captureServiceName="mantle.account.BraintreeServices.capture#Payment"
-            releaseServiceName="mantle.account.BraintreeServices.release#Payment"
-            refundServiceName="mantle.account.BraintreeServices.refund#Payment"/>
-    <braintree.PaymentGatewayBraintree paymentGatewayConfigId="BraintreeTest" merchantId="your_merchant_id"
-            publicKey="public_key" privateKey="private_key" testMode="Y"/>
-    <mantle.product.store.ProductStorePaymentGateway productStoreId="POPC_DEFAULT" paymentInstrumentEnumId="PiBraintreeAccount"
-            paymentGatewayConfigId="BraintreeTest"/>
-    -->
-
+    <moqui.basic.Enumeration enumId="BraintreeVaultEnabled" description="Braintree Vault Enabled (true/false)" enumTypeId="UserPreferenceKey"/>
+    <moqui.basic.Enumeration enumId="BraintreeVaultPaymentGatewayConfigId" description="Braintree Vault Payment Gateway Config ID" enumTypeId="UserPreferenceKey"/>
 </entity-facade-xml>

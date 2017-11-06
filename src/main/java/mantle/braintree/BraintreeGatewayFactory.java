@@ -20,12 +20,16 @@ import org.moqui.entity.EntityValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 
 public class BraintreeGatewayFactory {
-    protected static final Logger logger = LoggerFactory.getLogger(BraintreeGatewayFactory.class);
-    private static BraintreeGateway gateway;
+    private static final Logger logger = LoggerFactory.getLogger(BraintreeGatewayFactory.class);
+    private static Map<String, BraintreeGateway> gatewayById = new ConcurrentHashMap<>();
 
     public static BraintreeGateway getInstance(String paymentGatewayConfigId, EntityFacade entity) {
+        BraintreeGateway gateway = gatewayById.get(paymentGatewayConfigId);
         if (gateway == null) {
             EntityValue gatewayConfig = entity.find("mantle.account.method.PaymentGatewayConfig")
                     .condition("paymentGatewayConfigId", paymentGatewayConfigId)
@@ -35,14 +39,14 @@ public class BraintreeGatewayFactory {
                 if (braintreeConfig != null) {
                     gateway = new BraintreeGateway(
                             "Y".equalsIgnoreCase(braintreeConfig.getString("testMode")) ? Environment.SANDBOX : Environment.PRODUCTION,
-                            braintreeConfig.getString("merchantId"),
-                            braintreeConfig.getString("publicKey"),
+                            braintreeConfig.getString("merchantId"), braintreeConfig.getString("publicKey"),
                             braintreeConfig.getString("privateKey")
                     );
+                    gatewayById.put(paymentGatewayConfigId, gateway);
                 }
             }
         }
-        if (gateway == null) logger.error("Braintree accound is not configured properly");
+        if (gateway == null) logger.error("Braintree account is not configured properly for paymentGatewayConfigId " + paymentGatewayConfigId);
         return gateway;
     }
 }

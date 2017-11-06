@@ -20,22 +20,15 @@ import org.moqui.entity.EntityValue
 BraintreeGateway gateway = BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec.entity)
 
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
-if (!payment) {
-    ec.message.addError("Payment ${paymentId} not found");
-    return
-}
+if (!payment) { ec.message.addError("Payment ${paymentId} not found"); return }
 
-EntityValue paymentMethod = payment.findRelatedOne("method", false, false)
-if ("PmtBraintreeAccount" != paymentMethod.paymentMethodTypeEnumId) {
-    ec.message.addError("Cannot release authorization for payment ${paymentId}, not a Braintree payment.")
-    return
-}
+// NOTE: don't need to make sure this is a Braintree gateway PaymentMethod, this service only called if configured on a gateway record for Braintree
 
 String paymentRefNum = payment.paymentRefNum
 if (!paymentRefNum) {
-    response = ec.service.sync().name("mantle.account.PaymentServices.get#AuthorizePaymentGatewayResponse")
-            .parameters([paymentId: paymentId]).call()
-    paymentRefNum = response.paymentGatewayResponse.referenceNum
+    Map response = ec.service.sync().name("mantle.account.PaymentServices.get#AuthorizePaymentGatewayResponse")
+            .parameter("paymentId", paymentId).call()
+    paymentRefNum = response.paymentGatewayResponse?.referenceNum
 }
 if (!paymentRefNum) {
     ec.message.addError("Could not find authorization transaction ID (reference number) for Payment ${paymentId}")
@@ -58,17 +51,13 @@ try {
         // report any validation errors and return because in this case transaction object does not exist
         List validationErrors = result.errors.allDeepValidationErrors
         if (validationErrors) {
-            validationErrors.each {error ->
-                ec.logger.error("Error code ${error.code} - ${error.message} in ${error.attribute}")
-                ec.message.addValidationError(null, error.attribute, null, error.message, null)
-            }
-
+            validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
+            // TODO: bad to return here without saving the PaymentGatewayResponse
             return
         }
 
-        transaction = result.transaction
-
-        if (transaction) {
+        transaction = result.target
+        if (transaction != null) {
             String status = transaction.status.toString()
 
             // analyze transaction object to collect information about authorization problem

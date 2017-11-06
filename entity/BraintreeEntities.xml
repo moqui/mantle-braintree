@@ -12,10 +12,7 @@ You should have received a copy of the CC0 Public Domain Dedication
 along with this software (see the LICENSE.md file). If not, see
 <http://creativecommons.org/publicdomain/zero/1.0/>.
 -->
-<entities
-        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-        xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-2.1.xsd">
-
+<entities xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/entity-definition-2.1.xsd">
     <entity entity-name="PaymentGatewayBraintree" package="braintree">
         <field name="paymentGatewayConfigId" type="id" is-pk="true"/>
         <field name="merchantId" type="text-medium"><description>Merchant identifier</description></field>
@@ -23,6 +20,8 @@ along with this software (see the LICENSE.md file). If not, see
         <field name="privateKey" type="text-medium" encrypt="true"><description>Private Key</description></field>
         <field name="testMode" type="text-indicator"><description>Y for sandbox account</description></field>
         <relationship type="one" related="mantle.account.method.PaymentGatewayConfig" />
+        <seed-data>
+            <moqui.basic.Enumeration description="Braintree Payments" enumId="PgtBraintree" enumTypeId="PaymentGatewayType"/>
+        </seed-data>
     </entity>
-
 </entities>
