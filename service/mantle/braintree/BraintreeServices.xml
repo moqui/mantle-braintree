@@ -74,7 +74,7 @@ along with this software (see the LICENSE.md file). If not, see
 
                 com.braintreegateway.CustomerRequest custRequest = null
                 com.braintreegateway.PaymentMethodRequest pmRequest = null
-                com.braintreegateway.CreditCardAddressRequest billAddr = null
+                com.braintreegateway.AddressRequest billAddr = null
                 if (customer == null) {
                     custRequest = new com.braintreegateway.CustomerRequest().id((String) partyId)
                             .firstName((String) partyDetail.firstName).lastName((String) partyDetail.lastName)
