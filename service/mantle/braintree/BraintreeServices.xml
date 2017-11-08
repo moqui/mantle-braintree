@@ -152,16 +152,14 @@ along with this software (see the LICENSE.md file). If not, see
                             reasonMessage:reasonMessage, resultSuccess:'Y', resultError:'N']).call()
                 } else {
                     List validationErrors = gatewayResult.errors.allDeepValidationErrors
-                    String reasonCode = null
-                    if (validationErrors) {
-                        for (def error in validationErrors)
-                            ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
-                        reasonCode = validationErrors.get(0).code.toString()
-                    }
+                    String reasonCode = validationErrors ? validationErrors.get(0).code.toString() : null
                     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
                             paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
                             reasonCode:reasonCode, reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
+
+                    if (validationErrors) for (def error in validationErrors)
+                        ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
                 }
             ]]></script>
         </actions>
@@ -219,10 +217,11 @@ along with this software (see the LICENSE.md file). If not, see
             <if condition="emailContactMech == null"><set field="emailContactMech" from="billingContactInfo.emailContactMech"/></if>
 
             <!-- credit card data -->
-            <!-- correct masking if needed, use only 'X' (for Braintree is number optional for update or needs masking?) -->
-            <set field="cardNumber" from="creditCard.cardNumber?.replaceAll(/\D/, 'X')"/>
-            <set field="cardholderName" value="${paymentMethod.firstNameOnAccount ?: partyDetail?.firstName ?: ''} ${paymentMethod.lastNameOnAccount ?: partyDetail?.lastName ?: ''}"/>
             <script><![CDATA[
+                // correct masking if needed, use only 'X' (for Braintree is number optional for update or needs masking?)
+                String cardNumber = creditCard.cardNumber?.replaceAll(/\D/, 'X')
+                String cardholderName = "${paymentMethod.firstNameOnAccount ?: partyDetail?.firstName ?: ''} ${paymentMethod.lastNameOnAccount ?: partyDetail?.lastName ?: ''}"
+
                 def gateway = mantle.braintree.BraintreeGatewayFactory.getInstance((String) paymentGatewayConfigId, ec)
 
                 // see if the customer exists, if not create one
@@ -240,9 +239,9 @@ along with this software (see the LICENSE.md file). If not, see
                     if (emailContactMech?.infoString) custRequest.email((String) emailContactMech.infoString)
                     if (phone) custRequest.phone((String) phone)
 
-                    ccRequest = custRequest.creditCard().customerId((String) paymentMethod.ownerPartyId)
-                            .cardholderName((String) cardholderName).expirationDate((String) creditCard.expireDate)
-                            .number((String) creditCard.cardNumber)
+                    // NOTE: for some reason passing customerId here causes a Braintree Authorization Exception: .customerId((String) paymentMethod.ownerPartyId)
+                    ccRequest = custRequest.creditCard().cardholderName(cardholderName)
+                            .expirationDate((String) creditCard.expireDate).number((String) creditCard.cardNumber)
                 } else {
                     // create or update the credit card
                     ccRequest = new com.braintreegateway.CreditCardRequest().customerId((String) paymentMethod.ownerPartyId)
@@ -272,8 +271,11 @@ along with this software (see the LICENSE.md file). If not, see
 
                 def gatewayResult = null
                 def newCreditCard = null
-                String newImageUrl
+
+                // TODO: remove these to disable Braintree FINE logging, back to INFO
+                java.util.logging.Logger.getLogger("Braintree").setLevel(java.util.logging.Level.ALL)
                 if (customer == null) {
+                    ec.logger.warn("Braintree customer().create() for: ${custRequest}")
                     gatewayResult = gateway.customer().create(custRequest)
                     List creditCards = gatewayResult.target?.creditCards
                     if (creditCards) newCreditCard = creditCards.get(0)
@@ -309,16 +311,14 @@ along with this software (see the LICENSE.md file). If not, see
                     }
                 } else {
                     List validationErrors = gatewayResult.errors.allDeepValidationErrors
-                    String reasonCode = null
-                    if (validationErrors) {
-                        for (def error in validationErrors)
-                            ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
-                        reasonCode = validationErrors.get(0).code.toString()
-                    }
-                    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                    String reasonCode = validationErrors ? validationErrors.get(0).code.toString() : null
+                    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
                             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
                             paymentMethodId:paymentMethodId, paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
                             reasonCode:reasonCode, reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
+
+                    if (validationErrors) for (def error in validationErrors)
+                        ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
                 }
             ]]></script>
         </actions>
@@ -358,16 +358,14 @@ along with this software (see the LICENSE.md file). If not, see
                         paymentMethod.update()
                     } else {
                         List validationErrors = gatewayResult.errors.allDeepValidationErrors
-                        String reasonCode = null
-                        if (validationErrors) {
-                            for (def error in validationErrors)
-                                ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
-                            reasonCode = validationErrors.get(0).code.code
-                        }
+                        String reasonCode = validationErrors ? validationErrors.get(0).code.toString() : null
                         ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                                 paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
                                 paymentMethodId:paymentMethodId, paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
-                                reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
+                                reasonCode:reasonCode, reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
+
+                        if (validationErrors) for (def error in validationErrors)
+                            ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
                     }
                 }
             ]]></script>

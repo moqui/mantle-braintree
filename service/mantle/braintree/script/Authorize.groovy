@@ -30,6 +30,7 @@ if (paymentMethod == null) {
         // handle passed nonce but no paymentMethodId, create a PaymentMethod
         Map pmResult = ec.service.sync().name("mantle.braintree.BraintreeServices.create#PaymentMethodFromNonce")
                 .parameters([partyId:payment.fromPartyId, nonce:nonce, paymentId:paymentId]).call()
+        if (ec.message.hasError()) return
         paymentMethodId = pmResult.paymentMethodId
         paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
     } else {
@@ -46,6 +47,8 @@ String partyId = paymentMethod?.ownerPartyId ?: payment.fromPartyId
 if (!paymentMethod.gatewayCimId) {
     ec.service.sync().name("mantle.braintree.BraintreeServices.store#CustomerPaymentMethod")
             .parameters([paymentMethodId:paymentMethodId, paymentId:paymentId, validateSecurityCode:validateSecurityCode]).call()
+    // get the fresh PaymentMethod record
+    paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
 }
 
 // for call through interface that allows no paymentGatewayConfigId parameter
@@ -68,7 +71,7 @@ if (gateway == null) { ec.message.addError("Could not find Braintree gateway con
 TransactionRequest txRequest = new TransactionRequest().amount(amount).customerId(partyId).orderId(orderId)
 if (nonce) txRequest.paymentMethodNonce(nonce)
 txRequest.paymentMethodToken(paymentMethodToken)
-// getting API error, need to research: if (visit != null) { txRequest.riskData().customerIp(visit.clientIpAddress).customerBrowser(visit.initialUserAgent) }
+// TODO: getting API error, need to research: if (visit != null) { txRequest.riskData().customerIp(visit.clientIpAddress).customerBrowser(visit.initialUserAgent) }
 
 // NOTE: for PayPal one time vaulted transactions need deviceData()? see https://developers.braintreepayments.com/reference/request/transaction/sale/java#device_data
 // FUTURE: consider support for settle now with parameter or something: txRequest.options().submitForSettlement(true).done()
@@ -77,7 +80,7 @@ txRequest.paymentMethodToken(paymentMethodToken)
 
 Result result = gateway.transaction().sale(txRequest)
 
-Transaction transaction = null
+Transaction transaction = result.target
 
 if (result.isSuccess()) {
     // if successful the transaction is in Authorized state
@@ -85,36 +88,30 @@ if (result.isSuccess()) {
             .parameters([paymentId:paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId])
             .call()
 
-    transaction = result.target
-
     String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + ":" + transaction.avsStreetAddressResponseCode)
+    String reasonMessage = result.message
+    if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoAuthorize", paymentId:paymentId,
             paymentMethodId:paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
-            referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage: result.message,
+            referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage:reasonMessage,
             transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction.cvvResponseCode,
             resultSuccess:"Y", resultDeclined:"N", resultError:"N", resultNsf:"N", resultBadExpire:"N",
             resultBadCardNumber:"N"]).call()
 } else {
-    // report any validation errors and return because in this case transaction object does not exist
-    List validationErrors = result.errors.allDeepValidationErrors
-    if (validationErrors)
-        validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
-
-    transaction = result.target
     if (transaction != null) {
-        String status = transaction.status.toString()
+        status = transaction.status.toString()
 
         // analyze transaction object to collect information about authorization problem
-        String responseCode = transaction.processorResponseCode
-        String responseText = transaction.processorResponseText
+        responseCode = transaction.processorResponseCode
+        responseText = transaction.processorResponseText
 
-        String resultSuccess = "N"
-        String resultDeclined = "N"
-        String resultError = "N"
-        String resultNsf = "N"
-        String resultBadExpire = "N"
-        String resultBadCardNumber = "N"
+        resultSuccess = "N"
+        resultDeclined = "N"
+        resultError = "N"
+        resultNsf = "N"
+        resultBadExpire = "N"
+        resultBadCardNumber = "N"
         if (status == "PROCESSOR_DECLINED") {
             resultDeclined = "Y"
             if (responseCode == "2001") resultNsf = "Y"
@@ -130,14 +127,20 @@ if (result.isSuccess()) {
             // Perhaps another possible status is FAILED
             ec.logger.error("Unknown authorization error: ${result.message}")
         }
-
-        String avsCode = transaction.avsErrorResponseCode ?: (transaction.avsPostalCodeResponseCode?:"" + transaction.avsStreetAddressResponseCode?:"")
-        ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
-                paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoAuthorize", paymentId: paymentId,
-                paymentMethodId:paymentMethodId, amountUomId: payment.amountUomId, amount: transaction.amount,
-                referenceNum:transaction.id, responseCode: transaction.processorResponseCode, reasonMessage: responseText,
-                transactionDate:ec.user.nowTimestamp, avsResult: avsCode, cvResult: transaction.cvvResponseCode,
-                resultSuccess:resultSuccess, resultDeclined: resultDeclined, resultError: resultError, resultNsf: resultNsf,
-                resultBadExpire:resultBadExpire, resultBadCardNumber: resultBadCardNumber]).call()
+        avsCode = transaction.avsErrorResponseCode ?: (transaction.avsPostalCodeResponseCode?:"" + ":" + transaction.avsStreetAddressResponseCode?:"")
+    } else {
+        responseText = result.message
     }
+
+    if (responseText != null && responseText.length() > 255) responseText = responseText.substring(0, 255)
+    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
+            paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoAuthorize", paymentId: paymentId,
+            paymentMethodId:paymentMethodId, amountUomId:payment.amountUomId, amount:payment.amount,
+            referenceNum:(transaction?.id ?: paymentRefNum), responseCode:responseCode, reasonMessage:responseText,
+            transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction?.cvvResponseCode,
+            resultSuccess:resultSuccess, resultDeclined: resultDeclined, resultError: resultError, resultNsf: resultNsf,
+            resultBadExpire:resultBadExpire, resultBadCardNumber: resultBadCardNumber]).call()
+
+    List validationErrors = result.errors.allDeepValidationErrors
+    if (validationErrors) validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
 }
