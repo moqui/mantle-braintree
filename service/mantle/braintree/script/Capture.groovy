@@ -48,12 +48,14 @@ try {
         // if successful the transaction is settled or waiting to settlement
         String reasonMessage = result.message
         if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
-        ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+        Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                 paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoCapture", paymentId:paymentId,
                 paymentMethodId:payment.paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
                 referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage:reasonMessage,
                 transactionDate:ec.user.nowTimestamp, resultSuccess:"Y", resultDeclined:"N", resultError:"N",
                 resultNsf:"N", resultBadExpire:"N", resultBadCardNumber:"N"]).call()
+        // out parameter
+        paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
     } else {
         if (transaction != null) {
             status = transaction.status.toString()
@@ -68,17 +70,17 @@ try {
         }
 
         if (responseText != null && responseText.length() > 255) responseText = responseText.substring(0, 255)
-        ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
+        Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
                 paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoCapture", paymentId: paymentId,
                 paymentMethodId:payment.paymentMethodId, amountUomId: payment.amountUomId, amount: payment.amount,
                 referenceNum:(transaction?.id ?: paymentRefNum), responseCode:responseCode, reasonMessage:responseText,
                 transactionDate:ec.user.nowTimestamp, resultSuccess:"N", resultDeclined: "Y",
                 resultError: "N", resultNsf: "N", resultBadExpire:"N", resultBadCardNumber: "N"]).call()
+        // out parameter
+        paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
 
         List validationErrors = result.errors.allDeepValidationErrors
-        if (validationErrors) {
-            validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
-        }
+        if (validationErrors) validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
     }
 
 } catch (NotFoundException e) {

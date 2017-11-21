@@ -128,9 +128,11 @@ along with this software (see the LICENSE.md file). If not, see
                         paymentMethodId = pmResult.paymentMethodId
 
                         // NOTE: using expirationMonth and expirationYear as expirationDate is MMYYYY
-                        ec.service.sync().name("create#mantle.account.method.CreditCard").parameters([
-                                paymentMethodId:paymentMethodId, cardNumber:newPaymentMethod.maskedNumber,
-                                expireDate:(newPaymentMethod.expirationMonth + '/' + newPaymentMethod.expirationYear)]).call()
+                        Map ccCreateMap = [paymentMethodId:paymentMethodId, cardNumber:newPaymentMethod.maskedNumber,
+                                expireDate:(newPaymentMethod.expirationMonth + '/' + newPaymentMethod.expirationYear)]
+                        if (mantle.braintree.BraintreeGatewayFactory.ccTypes.containsKey(newCreditCard.cardType))
+                            ccCreateMap.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newCreditCard.cardType)
+                        ec.service.sync().name("create#mantle.account.method.CreditCard").parameters(ccCreateMap).call()
                     } else if (newPaymentMethod instanceof com.braintreegateway.PayPalAccount) {
                         payMethMap.paymentMethodTypeEnumId = 'PmtPayPalAccount'
                         payMethMap.description = "PayPal ${newPaymentMethod.email}"
@@ -295,15 +297,15 @@ along with this software (see the LICENSE.md file). If not, see
                             paymentMethodId:paymentMethodId, paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
                             reasonMessage:reasonMessage, resultSuccess:'Y', resultError:'N']).call()
 
-                    if (newGatewayCimId) {
+                    if (newCreditCard?.token) {
                         paymentMethod.gatewayCimId = newCreditCard.token
                         paymentMethod.paymentGatewayConfigId = paymentGatewayConfigId
                         paymentMethod.imageUrl = newCreditCard.imageUrl
                         if (!paymentMethod.description) paymentMethod.description = "${newCreditCard.cardType} ${newCreditCard.maskedNumber}"
-                        if (mantle.braintree.BraintreeGatewayFactory.ccTypes.containsKey(newCreditCard.cardType))
-                            paymentMethod.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newCreditCard.cardType)
                         paymentMethod.update()
 
+                        if (mantle.braintree.BraintreeGatewayFactory.ccTypes.containsKey(newCreditCard.cardType))
+                            creditCard.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newCreditCard.cardType)
                         creditCard.cardSecurityCode = null
                         creditCard.cardNumber = newCreditCard.maskedNumber
                         creditCard.update()
