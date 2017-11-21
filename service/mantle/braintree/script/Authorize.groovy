@@ -27,8 +27,8 @@ EntityValue visit = payment.'moqui.server.Visit'
 
 if (paymentMethod == null) {
     if (nonce) {
-        // handle passed nonce but no paymentMethodId, create a PaymentMethod
-        Map pmResult = ec.service.sync().name("mantle.braintree.BraintreeServices.create#PaymentMethodFromNonce")
+        // handle passed nonce but no paymentMethodId, create a PaymentMethod; do in separate TX in case this succeeds but transaction().sale() fails
+        Map pmResult = ec.service.sync().name("mantle.braintree.BraintreeServices.create#PaymentMethodFromNonce").requireNewTransaction(true)
                 .parameters([partyId:payment.fromPartyId, nonce:nonce, paymentId:paymentId]).call()
         if (ec.message.hasError()) return
         paymentMethodId = pmResult.paymentMethodId
@@ -50,6 +50,8 @@ if (!paymentMethod.gatewayCimId) {
     // get the fresh PaymentMethod record
     paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
 }
+String paymentMethodToken = paymentMethod.gatewayCimId
+if (!paymentMethodToken) ec.logger.warn("No gatewayCimId in PaymentMethod ${paymentMethodId}, will attempt with default PM on customer's Braintree account")
 
 // for call through interface that allows no paymentGatewayConfigId parameter
 // try getting paymentGatewayConfigId from PaymentMethod first
@@ -83,21 +85,21 @@ Result result = gateway.transaction().sale(txRequest)
 Transaction transaction = result.target
 
 if (result.isSuccess()) {
-    // if successful the transaction is in Authorized state
-    ec.service.sync().name("update#mantle.account.payment.Payment")
-            .parameters([paymentId:paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId])
-            .call()
+    // don't do this, done by calling service in mantle (authorize#SinglePayment): ec.service.sync().name("update#mantle.account.payment.Payment").parameters([paymentId:paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId]).call()
 
     String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + ":" + transaction.avsStreetAddressResponseCode)
     String reasonMessage = result.message
     if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
-    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+    Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoAuthorize", paymentId:paymentId,
             paymentMethodId:paymentMethodId, amountUomId:payment.amountUomId, amount:transaction.amount,
-            referenceNum:transaction.id, responseCode:transaction.processorResponseCode, reasonMessage:reasonMessage,
+            approvalCode:transaction.processorAuthorizationCode, referenceNum:transaction.id,
+            responseCode:transaction.processorResponseCode, reasonMessage:reasonMessage,
             transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction.cvvResponseCode,
             resultSuccess:"Y", resultDeclined:"N", resultError:"N", resultNsf:"N", resultBadExpire:"N",
             resultBadCardNumber:"N"]).call()
+    // out parameter
+    paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
 } else {
     if (transaction != null) {
         status = transaction.status.toString()
@@ -133,13 +135,15 @@ if (result.isSuccess()) {
     }
 
     if (responseText != null && responseText.length() > 255) responseText = responseText.substring(0, 255)
-    ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
+    Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoAuthorize", paymentId: paymentId,
             paymentMethodId:paymentMethodId, amountUomId:payment.amountUomId, amount:payment.amount,
-            referenceNum:(transaction?.id ?: paymentRefNum), responseCode:responseCode, reasonMessage:responseText,
+            referenceNum:transaction?.id, responseCode:responseCode, reasonMessage:responseText,
             transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction?.cvvResponseCode,
             resultSuccess:resultSuccess, resultDeclined: resultDeclined, resultError: resultError, resultNsf: resultNsf,
             resultBadExpire:resultBadExpire, resultBadCardNumber: resultBadCardNumber]).call()
+    // out parameter
+    paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
 
     List validationErrors = result.errors.allDeepValidationErrors
     if (validationErrors) validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
