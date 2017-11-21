@@ -97,8 +97,7 @@ along with this software (see the LICENSE.md file). If not, see
                             .postalCode("${postalAddress.postalCode}${postalAddress.postalCodeExt ? '-' + postalAddress.postalCodeExt : ''}")
                             .countryCodeAlpha3((String) postalAddress.countryGeoId)
 
-                    if (paymentMethod.companyNameOnAccount) billAddr.company((String) paymentMethod.companyNameOnAccount)
-                    else if (partyDetail?.organizationName) billAddr.company((String) partyDetail.organizationName)
+                    if (partyDetail?.organizationName) billAddr.company((String) partyDetail.organizationName)
 
                     if (postalAddress.address2 || postalAddress.unitNumber)
                         billAddr.extendedAddress("${postalAddress.address2 ?: ''}${postalAddress.address2 && postalAddress.unitNumber ? ' ' : ''}${postalAddress.unitNumber ? '#' + postalAddress.unitNumber : ''}")
