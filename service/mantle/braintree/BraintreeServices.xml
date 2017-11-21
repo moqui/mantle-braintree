@@ -130,8 +130,8 @@ along with this software (see the LICENSE.md file). If not, see
                         // NOTE: using expirationMonth and expirationYear as expirationDate is MMYYYY
                         Map ccCreateMap = [paymentMethodId:paymentMethodId, cardNumber:newPaymentMethod.maskedNumber,
                                 expireDate:(newPaymentMethod.expirationMonth + '/' + newPaymentMethod.expirationYear)]
-                        if (mantle.braintree.BraintreeGatewayFactory.ccTypes.containsKey(newCreditCard.cardType))
-                            ccCreateMap.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newCreditCard.cardType)
+                        if (mantle.braintree.BraintreeGatewayFactory.ccTypes.containsKey(newPaymentMethod.cardType))
+                            ccCreateMap.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newPaymentMethod.cardType)
                         ec.service.sync().name("create#mantle.account.method.CreditCard").parameters(ccCreateMap).call()
                     } else if (newPaymentMethod instanceof com.braintreegateway.PayPalAccount) {
                         payMethMap.paymentMethodTypeEnumId = 'PmtPayPalAccount'
