@@ -39,7 +39,9 @@ along with this software (see the LICENSE.md file). If not, see
             <parameter name="nonce" required="true"/>
             <parameter name="paymentId"><description>If specified will associate PaymentGatewayResponse with the Payment</description></parameter>
             <parameter name="paymentGatewayConfigId"><description>If not specified gets from BraintreeVaultPaymentGatewayConfigId user preference</description></parameter>
-            <!-- FUTURE: support a billing contactMechId parameter? -->
+            <parameter name="postalContactMechId"/>
+            <parameter name="telecomContactMechId"/>
+            <parameter name="emailContactMechId"/>
         </in-parameters>
         <out-parameters><parameter name="paymentMethodId"/></out-parameters>
         <actions>
@@ -54,10 +56,12 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="mantle.party.PartyDetail" value-field="partyDetail"><field-map field-name="partyId"/></entity-find-one>
 
             <!-- get billing contact info, use for any not set on PaymentMethod -->
+            <set field="contactsContext" from="[partyId:partyId]"/>
+            <if condition="!postalContactMechId"><set field="contactsContext.postalContactMechPurposeId" value="PostalBilling"/></if>
+            <if condition="!telecomContactMechId"><set field="contactsContext.telecomContactMechPurposeId" value="PhoneBilling"/></if>
+            <if condition="!emailContactMechId"><set field="contactsContext.emailContactMechPurposeId" value="EmailBilling"/></if>
             <service-call name="mantle.party.ContactServices.get#PartyContactInfo" out-map="billingContactInfo"
-                    in-map="[partyId:partyId, postalContactMechPurposeId:'PostalBilling',
-                            telecomContactMechPurposeId:'PhoneBilling', emailContactMechPurposeId:'EmailBilling']"/>
-
+                    in-map="context + contactsContext"/>
             <set field="postalAddress" from="billingContactInfo.postalAddress"/>
             <set field="stateProvinceGeo" from="billingContactInfo.postalAddressStateGeo"/>
             <set field="telecomNumber" from="billingContactInfo.telecomNumber"/>
@@ -119,7 +123,8 @@ along with this software (see the LICENSE.md file). If not, see
 
                 if (gatewayResult.isSuccess()) {
                     Map payMethMap = [gatewayCimId:newPaymentMethod.token, paymentGatewayConfigId:paymentGatewayConfigId,
-                            imageUrl:newPaymentMethod.imageUrl, ownerPartyId:partyId]
+                            imageUrl:newPaymentMethod.imageUrl, ownerPartyId:partyId, postalContactMechId:postalContactMechId,
+                            telecomContactMechId:telecomContactMechId, emailContactMechId:emailContactMechId]
                     if (newPaymentMethod instanceof com.braintreegateway.CreditCard) {
                         payMethMap.paymentMethodTypeEnumId = 'PmtCreditCard'
                         payMethMap.description = "${newPaymentMethod.cardType} ${newPaymentMethod.maskedNumber}"
