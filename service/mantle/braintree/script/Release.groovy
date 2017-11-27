@@ -79,5 +79,6 @@ try {
     }
 } catch (NotFoundException e) {
     ec.message.addError("Transaction ${paymentRefNum} not found")
-    return
+} catch (Exception ge) {
+    ec.message.addError("Braintree exception: ${ge.toString()}")
 }

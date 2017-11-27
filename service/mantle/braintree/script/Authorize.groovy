@@ -80,7 +80,13 @@ txRequest.paymentMethodToken(paymentMethodToken)
 // FUTURE: PO number might be useful: https://developers.braintreepayments.com/reference/request/transaction/sale/java#purchase_order_number
 // FUTURE: pass shipping address with txRequest.shipping(): https://developers.braintreepayments.com/reference/request/transaction/sale/java#shipping
 
-Result result = gateway.transaction().sale(txRequest)
+Result result
+try {
+    result = gateway.transaction().sale(txRequest)
+} catch (Exception ge) {
+    ec.message.addError("Braintree exception: ${ge.toString()}")
+    return
+}
 
 Transaction transaction = result.target
 

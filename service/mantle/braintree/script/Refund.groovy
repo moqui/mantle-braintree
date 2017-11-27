@@ -76,8 +76,8 @@ try {
         List validationErrors = result.errors.allDeepValidationErrors
         if (validationErrors) validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
     }
-
 } catch (NotFoundException e) {
     ec.message.addError("Transaction ${paymentRefNum} not found")
-    return
+} catch (Exception ge) {
+    ec.message.addError("Braintree exception: ${ge.toString()}")
 }

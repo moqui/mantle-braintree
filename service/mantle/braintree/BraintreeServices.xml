@@ -69,6 +69,7 @@ along with this software (see the LICENSE.md file). If not, see
             <set field="emailContactMech" from="billingContactInfo.emailContactMech"/>
 
             <script><![CDATA[
+            try {
                 def gateway = mantle.braintree.BraintreeGatewayFactory.getInstance((String) paymentGatewayConfigId, ec)
 
                 // see if the customer exists, if not create one
@@ -167,6 +168,9 @@ along with this software (see the LICENSE.md file). If not, see
                     if (validationErrors) for (def error in validationErrors)
                         ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
                 }
+            } catch (Exception ge) {
+                ec.message.addError("Braintree exception: ${ge.toString()}")
+            }
             ]]></script>
         </actions>
     </service>
@@ -224,6 +228,7 @@ along with this software (see the LICENSE.md file). If not, see
 
             <!-- credit card data -->
             <script><![CDATA[
+            try {
                 // correct masking if needed, use only 'X' (for Braintree is number optional for update or needs masking?)
                 String cardNumber = creditCard.cardNumber?.replaceAll(/\D/, 'X')
                 String cardholderName = "${paymentMethod.firstNameOnAccount ?: partyDetail?.firstName ?: ''} ${paymentMethod.lastNameOnAccount ?: partyDetail?.lastName ?: ''}"
@@ -326,6 +331,9 @@ along with this software (see the LICENSE.md file). If not, see
                     if (validationErrors) for (def error in validationErrors)
                         ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
                 }
+            } catch (Exception ge) {
+                ec.message.addError("Braintree exception: ${ge.toString()}")
+            }
             ]]></script>
         </actions>
     </service>
