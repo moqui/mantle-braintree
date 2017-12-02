@@ -91,11 +91,9 @@ try {
 Transaction transaction
 
 if (result.isSuccess()) {
-    // don't do this, done by calling service in mantle (authorize#SinglePayment): ec.service.sync().name("update#mantle.account.payment.Payment").parameters([paymentId:paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId]).call()
-
     transaction = result.target
 
-    String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + ":" + transaction.avsStreetAddressResponseCode)
+    String avsCode = transaction.avsErrorResponseCode?:"${transaction.avsPostalCodeResponseCode?:'N/A'}:${transaction.avsStreetAddressResponseCode?:'N/A'}"
     String reasonMessage = result.message
     if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
     Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
@@ -130,17 +128,17 @@ if (result.isSuccess()) {
             if (responseCode == "2001") resultNsf = "Y"
             if (responseCode == "2004") resultBadExpire = "Y"
             if (responseCode == "2005") resultBadCardNumber = "Y"
-        } else if (status == "PROCESSOR_REJECTED") {
-            responseText = result.message
-            if (transaction.gatewayRejectionReason) responseText += (" (" + transaction.gatewayRejectionReason.toString() + ")")
-            resultError = "Y"
+            ec.logger.warn("Authorization is declined for payment " + paymentId);
         } else {
             responseText = result.message
             resultError = "Y"
-            // Perhaps another possible status is FAILED
-            ec.logger.error("Unknown authorization error: ${result.message}")
+            if (status == "PROCESSOR_REJECTED" || status == "GATEWAY_REJECTED") {
+                ec.logger.warn("Authorization is rejected for payment " + paymentId);
+            } else {
+                ec.logger.warn("Unknown authorization error for payment " + paymentId + " : ${result.message} ")
+            }
         }
-        avsCode = transaction.avsErrorResponseCode ?: (transaction.avsPostalCodeResponseCode?:"" + ":" + transaction.avsStreetAddressResponseCode?:"")
+        avsCode = transaction.avsErrorResponseCode?:"${transaction.avsPostalCodeResponseCode?:'N/A'}:${transaction.avsStreetAddressResponseCode?:'N/A'}"
     } else {
         responseText = result.message
     }
