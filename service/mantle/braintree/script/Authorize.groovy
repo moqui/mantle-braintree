@@ -146,8 +146,8 @@ if (result.isSuccess()) {
     }
 
     if (responseText != null && responseText.length() > 255) responseText = responseText.substring(0, 255)
-    Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
-            paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoAuthorize", paymentId: payment?paymentId:null,
+    Map createPgrOut = ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+            paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId: "PgoAuthorize", paymentId:paymentId,
             paymentMethodId:paymentMethodId, amountUomId:payment.amountUomId, amount:payment?.amount,
             referenceNum:transaction?.id, responseCode:responseCode, reasonMessage:responseText,
             transactionDate:ec.user.nowTimestamp, avsResult:avsCode, cvResult:transaction?.cvvResponseCode,
