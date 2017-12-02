@@ -88,10 +88,12 @@ try {
     return
 }
 
-Transaction transaction = result.target
+Transaction transaction
 
 if (result.isSuccess()) {
     // don't do this, done by calling service in mantle (authorize#SinglePayment): ec.service.sync().name("update#mantle.account.payment.Payment").parameters([paymentId:paymentId, statusId:"PmntAuthorized", paymentGatewayConfigId:paymentGatewayConfigId]).call()
+
+    transaction = result.target
 
     String avsCode = transaction.avsErrorResponseCode?:(transaction.avsPostalCodeResponseCode + ":" + transaction.avsStreetAddressResponseCode)
     String reasonMessage = result.message
@@ -106,7 +108,10 @@ if (result.isSuccess()) {
             resultBadCardNumber:"N"]).call()
     // out parameter
     paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
+
 } else {
+    // if transaction failed then we should use getTransaction() to retrieve transaction object instead of getTarget()
+    transaction = result.transaction
     if (transaction != null) {
         status = transaction.status.toString()
 

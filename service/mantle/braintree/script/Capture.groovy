@@ -57,6 +57,8 @@ try {
         // out parameter
         paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
     } else {
+        // if transaction failed then we should use getTransaction() to retrieve transaction object instead of getTarget()
+        transaction = result.transaction
         if (transaction != null) {
             status = transaction.status.toString()
 
