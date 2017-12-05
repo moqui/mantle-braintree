@@ -155,5 +155,5 @@ if (result.isSuccess()) {
     paymentGatewayResponseId = createPgrOut.paymentGatewayResponseId
 
     List validationErrors = result.errors.allDeepValidationErrors
-    if (validationErrors) validationErrors.each({ error -> ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null) })
+    if (validationErrors) validationErrors.each({ error -> ec.logger.warn("Attribute ${error.attribute} causes error: ${error.message} [${error.code}]") })
 }
