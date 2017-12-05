@@ -122,21 +122,6 @@ along with this software (see the LICENSE.md file). If not, see
                 String reasonMessage = gatewayResult.message
                 if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
 
-                // card verification should be enabled on Braintree
-                def cardVerification = gatewayResult.creditCardVerification
-                if (cardVerification) {
-                    String status = cardVerification.status.toString()
-                    if ("PROCESSOR_DECLINED" == status) {
-                        ec.logger.error("Payment method was declined (not verified) with response ${cardVerification.processorResponseText} (${cardVerification.processorResponseCode})");
-                        ec.message.addValidationError(null, null, null, "Payment method was declined", null)
-                        return
-                    } else if ("GATEWAY_REJECTED" == status) {
-                        ec.logger.error("Payment method is rejected (not verified) due to the reason: ${cardVerification.gatewayRejectionReason}")
-                        ec.message.addValidationError(null, null, null, "Payment method was rejected", null);
-                        return
-                    }
-                }
-
                 if (gatewayResult.isSuccess()) {
                     Map payMethMap = [gatewayCimId:newPaymentMethod.token, paymentGatewayConfigId:paymentGatewayConfigId,
                             imageUrl:newPaymentMethod.imageUrl, ownerPartyId:partyId, postalContactMechId:postalContactMechId,
@@ -155,6 +140,7 @@ along with this software (see the LICENSE.md file). If not, see
                             ccCreateMap.creditCardTypeEnumId = mantle.braintree.BraintreeGatewayFactory.ccTypes.get(newPaymentMethod.cardType)
                         ec.service.sync().name("create#mantle.account.method.CreditCard").parameters(ccCreateMap).call()
                     } else if (newPaymentMethod instanceof com.braintreegateway.PayPalAccount) {
+
                         payMethMap.paymentMethodTypeEnumId = 'PmtPayPalAccount'
                         payMethMap.description = "PayPal ${newPaymentMethod.email}"
 
@@ -173,12 +159,52 @@ along with this software (see the LICENSE.md file). If not, see
                             paymentMethodId:paymentMethodId, paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
                             reasonMessage:reasonMessage, resultSuccess:'Y', resultError:'N']).call()
                 } else {
+                    /*
+                     * Card verification should be enabled on Braintree otherwise this object does not
+                     * present in the result. We check verification result first and proceed with other
+                     * errors only if it has status VERIFIED.
+                     */
+                    com.braintreegateway.CreditCardVerification cardVerification = gatewayResult.creditCardVerification
+                    if (cardVerification) {
+                        String errMsg;
+                        com.braintreegateway.CreditCard creditCard = cardVerification.creditCard
+                        String status = cardVerification.status.toString()
+                        if (status != 'VERIFIED') {
+                            String reasonCode
+                            String resultError = 'N'
+                            String resultDeclined = 'Y'
+                            if ("PROCESSOR_DECLINED" == status) {
+                                reasonCode = cardVerification.processorResponseCode
+                                reasonMessage = cardVerification.processorResponseText
+                                errMsg = "Payment method was declined (not verified) for the card ${creditCard?.cardType} ending ${creditCard?.last4}"
+                            } else if ("GATEWAY_REJECTED" == status) {
+                                errMsg = "Payment method is rejected (not verified) for the card ${creditCard?.cardType} ending ${creditCard?.last4}"
+                                reasonMessage = "Rejected by gateway: " + cardVerification.gatewayRejectionReason.toString()
+                            } else {
+                                // status == FAILED
+                                errMsg = "Credit card verification is failed (not verified) for the card ${creditCard?.cardType} ending ${creditCard?.last4}"
+                                resultError = 'Y'
+                                resultDeclined = 'N'
+                            }
+
+                            ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                                    paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
+                                    paymentId:paymentId, transactionDate:ec.user.nowTimestamp, reasonCode:reasonCode,
+                                    reasonMessage:reasonMessage, resultSuccess:'N', resultError:resultError, resultDeclined:resultDeclined]).call()
+
+                            ec.logger.info(reasonMessage)
+                            ec.message.addError(errMsg)
+
+                            return;
+                        }
+                    }
+
                     List validationErrors = gatewayResult.errors.allDeepValidationErrors
                     String reasonCode = validationErrors ? validationErrors.get(0).code.toString() : null
                     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
-                            paymentId:paymentId, transactionDate:ec.user.nowTimestamp,
-                            reasonCode:reasonCode, reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
+                            paymentId:paymentId, transactionDate:ec.user.nowTimestamp, reasonCode:reasonCode,
+                            reasonMessage:reasonMessage, resultSuccess:'N', resultError:'Y']).call()
 
                     if (validationErrors) for (def error in validationErrors)
                         ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
@@ -316,21 +342,6 @@ along with this software (see the LICENSE.md file). If not, see
                 String reasonMessage = gatewayResult.message
                 if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
 
-                // card verification should be enabled on Braintree
-                def cardVerification = gatewayResult.creditCardVerification
-                if (cardVerification) {
-                    String status = cardVerification.status.toString()
-                    if ("PROCESSOR_DECLINED" == status) {
-                        ec.logger.error("Payment method was declined (not verified) with response ${cardVerification.processorResponseText} (${cardVerification.processorResponseCode})");
-                        ec.message.addValidationError(null, null, null, "Payment method was declined", null)
-                        return
-                    } else if ("GATEWAY_REJECTED" == status) {
-                        ec.logger.error("Payment method is rejected (not verified) due to the reason: ${cardVerification.gatewayRejectionReason}")
-                        ec.message.addValidationError(null, null, null, "Payment method was rejected", null);
-                        return
-                    }
-                }
-
                 if (gatewayResult.isSuccess()) {
                     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                             paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
@@ -351,6 +362,42 @@ along with this software (see the LICENSE.md file). If not, see
                         creditCard.update()
                     }
                 } else {
+                    /*
+                     * Card verification should be enabled on Braintree otherwise this object does not
+                     * present in the result. We check verification result first and proceed with other
+                     * errors only if it has status VERIFIED.
+                     */
+                    com.braintreegateway.CreditCardVerification cardVerification = gatewayResult.creditCardVerification
+                    if (cardVerification) {
+                        com.braintreegateway.CreditCard creditCard = cardVerification.creditCard
+                        String status = cardVerification.status.toString()
+                        if (status != 'VERIFIED') {
+                            String reasonCode
+                            String resultError = 'N'
+                            String resultDeclined = 'Y'
+                            if ("PROCESSOR_DECLINED" == status) {
+                                reasonCode = cardVerification.processorResponseCode
+                                reasonMessage = cardVerification.processorResponseText
+                            } else if ("GATEWAY_REJECTED" == status) {
+                                reasonMessage = "Rejected by gateway: " + cardVerification.gatewayRejectionReason.toString()
+                            } else {
+                                // status == FAILED
+                                resultError = 'Y'
+                                resultDeclined = 'N'
+                                reasonMessage = "Payment method is failed for unknown reason"
+                            }
+
+                            ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
+                                    paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
+                                    paymentId:paymentId, transactionDate:ec.user.nowTimestamp, reasonCode:reasonCode,
+                                    reasonMessage:reasonMessage, resultSuccess:'N', resultError:resultError, resultDeclined:resultDeclined]).call()
+
+                            ec.message.addError(reasonMessage)
+
+                            return;
+                        }
+                    }
+
                     List validationErrors = gatewayResult.errors.allDeepValidationErrors
                     String reasonCode = validationErrors ? validationErrors.get(0).code.toString() : null
                     ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").requireNewTransaction(true).parameters([
