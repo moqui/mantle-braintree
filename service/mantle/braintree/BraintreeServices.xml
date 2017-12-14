@@ -435,7 +435,7 @@ along with this software (see the LICENSE.md file). If not, see
             <script><![CDATA[
                 if (paymentMethod.gatewayCimId) {
                     com.braintreegateway.BraintreeGateway gateway = mantle.braintree.BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec)
-                    def gatewayResult = gateway.creditCard().delete((String) paymentMethod.gatewayCimId)
+                    def gatewayResult = gateway.paymentMethod().delete((String) paymentMethod.gatewayCimId)
                     String reasonMessage = gatewayResult.message
                     if (reasonMessage != null && reasonMessage.length() > 255) reasonMessage = reasonMessage.substring(0, 255)
 
@@ -495,7 +495,7 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="braintree.PaymentGatewayBraintree" value-field="pgan"/>
             <if condition="pgan == null">
                 <!-- this will happen regularly when PaymentMethod.paymentGatewayConfigId is for another gateway -->
-                <log message="Not deleting payment method ${paymentMethodId} from Braintree, no PaymentGatewayBraintree found with ID ${paymentGatewayConfigId}"/>
+                <log message="Not updating payment method ${paymentMethodId} from Braintree, no PaymentGatewayBraintree found with ID ${paymentGatewayConfigId}"/>
                 <return/>
             </if>
 
