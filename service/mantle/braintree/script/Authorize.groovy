@@ -21,6 +21,8 @@ import org.moqui.entity.EntityValue
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
 if (payment == null) { ec.message.addError("Payment ${paymentId} not found") }
 EntityValue paymentMethod = payment.'mantle.account.method.PaymentMethod'
+EntityValue creditCard
+if (paymentMethod.paymentMethodTypeEnumId == 'PmtCreditCard') creditCard = paymentMethod.creditCard
 
 BigDecimal amount = payment.amount
 EntityValue visit = payment.'moqui.server.Visit'
@@ -71,8 +73,11 @@ if (gateway == null) { ec.message.addError("Could not find Braintree gateway con
 
 // do the sale transaction request
 TransactionRequest txRequest = new TransactionRequest().amount(amount).customerId(partyId).orderId(orderId)
-if (nonce) txRequest.paymentMethodNonce(nonce)
-txRequest.paymentMethodToken(paymentMethodToken)
+if (nonce) txRequest.paymentMethodNonce(nonce) else
+if (paymentMethodToken) txRequest.paymentMethodToken(paymentMethodToken)
+if (creditCard && creditCard.cardSecurityCode) {
+    txRequest.creditCard().cvv(creditCard.cardSecurityCode).done()
+}
 // TODO: getting API error, need to research: if (visit != null) { txRequest.riskData().customerIp(visit.clientIpAddress).customerBrowser(visit.initialUserAgent) }
 
 // NOTE: for PayPal one time vaulted transactions need deviceData()? see https://developers.braintreepayments.com/reference/request/transaction/sale/java#device_data
