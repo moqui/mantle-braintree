@@ -51,6 +51,7 @@ String partyId = paymentMethod?.ownerPartyId ?: payment.fromPartyId
 if (!paymentMethod.gatewayCimId) {
     ec.service.sync().name("mantle.braintree.BraintreeServices.store#CustomerPaymentMethod")
             .parameters([paymentMethodId:paymentMethodId, paymentId:paymentId, validateSecurityCode:(validateSecurityCode ?: cvvCode)]).call()
+    if (ec.message.hasError()) return
     // get the fresh PaymentMethod record
     paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
 }
