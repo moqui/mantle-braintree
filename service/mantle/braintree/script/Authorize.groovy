@@ -24,7 +24,6 @@ EntityValue paymentMethod = (EntityValue) payment.'mantle.account.method.Payment
 EntityValue creditCard = null
 if (paymentMethod.paymentMethodTypeEnumId == 'PmtCreditCard') creditCard = (EntityValue) paymentMethod.creditCard
 String cvvCode = cardSecurityCode ?: creditCard?.cardSecurityCode
-ec.logger.warn("cvvCode ${cvvCode}")
 
 BigDecimal amount = (BigDecimal) payment.amount
 EntityValue visit = (EntityValue) payment.'moqui.server.Visit'
