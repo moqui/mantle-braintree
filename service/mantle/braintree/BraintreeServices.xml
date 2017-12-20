@@ -231,6 +231,7 @@ along with this software (see the LICENSE.md file). If not, see
             <!-- for now we are only supporting CreditCard, though we could also support BankAccount with Authorize.Net CIM -->
             <if condition="creditCard == null"><return/></if>
             <entity-find-one entity-name="mantle.account.method.PaymentMethod" value-field="paymentMethod" for-update="true"/>
+            <set field="cvvCode" from="validateSecurityCode ?: creditCard.cardSecurityCode"/>
 
             <!-- see if associated PaymentMethod has a paymentGatewayConfigId -->
             <if condition="!paymentGatewayConfigId"><set field="paymentGatewayConfigId" from="paymentMethod?.paymentGatewayConfigId"/></if>
@@ -294,14 +295,14 @@ along with this software (see the LICENSE.md file). If not, see
                     // NOTE: for some reason passing customerId here causes a Braintree Authorization Exception: .customerId((String) paymentMethod.ownerPartyId)
                     ccRequest = custRequest.creditCard().cardholderName(cardholderName)
                             .expirationDate((String) creditCard.expireDate).number((String) creditCard.cardNumber)
+                    if (cvvCode) ccRequest.cvv((String) cvvCode)
                 } else {
                     // create or update the credit card
                     ccRequest = new com.braintreegateway.CreditCardRequest().customerId((String) paymentMethod.ownerPartyId)
                             .cardholderName((String) cardholderName).expirationDate((String) creditCard.expireDate)
                     if (!paymentMethod.gatewayCimId) ccRequest.number((String) creditCard.cardNumber)
 
-                    if (validateSecurityCode) ccRequest.cvv((String) validateSecurityCode)
-                    else if (creditCard.cardSecurityCode) ccRequest.cvv((String) creditCard.cardSecurityCode)
+                    if (cvvCode) ccRequest.cvv((String) cvvCode)
                 }
 
                 if (postalAddress != null) {

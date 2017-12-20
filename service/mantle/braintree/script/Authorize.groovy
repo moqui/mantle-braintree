@@ -20,12 +20,14 @@ import org.moqui.entity.EntityValue
 
 EntityValue payment = ec.entity.find("mantle.account.payment.Payment").condition('paymentId', paymentId).one()
 if (payment == null) { ec.message.addError("Payment ${paymentId} not found") }
-EntityValue paymentMethod = payment.'mantle.account.method.PaymentMethod'
-EntityValue creditCard
-if (paymentMethod.paymentMethodTypeEnumId == 'PmtCreditCard') creditCard = paymentMethod.creditCard
+EntityValue paymentMethod = (EntityValue) payment.'mantle.account.method.PaymentMethod'
+EntityValue creditCard = null
+if (paymentMethod.paymentMethodTypeEnumId == 'PmtCreditCard') creditCard = (EntityValue) paymentMethod.creditCard
+String cvvCode = cardSecurityCode ?: creditCard?.cardSecurityCode
+ec.logger.warn("cvvCode ${cvvCode}")
 
-BigDecimal amount = payment.amount
-EntityValue visit = payment.'moqui.server.Visit'
+BigDecimal amount = (BigDecimal) payment.amount
+EntityValue visit = (EntityValue) payment.'moqui.server.Visit'
 
 if (paymentMethod == null) {
     if (nonce) {
@@ -48,7 +50,7 @@ String partyId = paymentMethod?.ownerPartyId ?: payment.fromPartyId
 // if no gatewayCimId, store the PaymentMethod in the Vault
 if (!paymentMethod.gatewayCimId) {
     ec.service.sync().name("mantle.braintree.BraintreeServices.store#CustomerPaymentMethod")
-            .parameters([paymentMethodId:paymentMethodId, paymentId:paymentId, validateSecurityCode:validateSecurityCode]).call()
+            .parameters([paymentMethodId:paymentMethodId, paymentId:paymentId, validateSecurityCode:(validateSecurityCode ?: cvvCode)]).call()
     // get the fresh PaymentMethod record
     paymentMethod = ec.entity.find('mantle.account.method.PaymentMethod').condition('paymentMethodId', paymentMethodId).one()
 }
@@ -75,9 +77,9 @@ if (gateway == null) { ec.message.addError("Could not find Braintree gateway con
 TransactionRequest txRequest = new TransactionRequest().amount(amount).customerId(partyId).orderId(orderId)
 if (nonce) txRequest.paymentMethodNonce(nonce) else
 if (paymentMethodToken) txRequest.paymentMethodToken(paymentMethodToken)
-if (creditCard && creditCard.cardSecurityCode) {
-    txRequest.creditCard().cvv(creditCard.cardSecurityCode).done()
-}
+
+if (cvvCode) txRequest.creditCard().cvv(cvvCode).done()
+
 // TODO: getting API error, need to research: if (visit != null) { txRequest.riskData().customerIp(visit.clientIpAddress).customerBrowser(visit.initialUserAgent) }
 
 // NOTE: for PayPal one time vaulted transactions need deviceData()? see https://developers.braintreepayments.com/reference/request/transaction/sale/java#device_data
