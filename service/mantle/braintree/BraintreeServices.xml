@@ -194,8 +194,6 @@ along with this software (see the LICENSE.md file). If not, see
 
                             ec.logger.info(reasonMessage)
                             ec.message.addPublic(errMsg, "danger")
-                            ec.message.addError(errMsg)
-
                             return;
                         }
                     }
