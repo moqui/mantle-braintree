@@ -389,10 +389,11 @@ along with this software (see the LICENSE.md file). If not, see
 
                             ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
                                     paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
-                                    paymentId:paymentId, transactionDate:ec.user.nowTimestamp, reasonCode:reasonCode,
+                                    paymentId:paymentId,transactionDate:ec.user.nowTimestamp, reasonCode:reasonCode,
                                     reasonMessage:reasonMessage, resultSuccess:'N', resultError:resultError, resultDeclined:resultDeclined]).call()
 
                             ec.message.addError(reasonMessage)
+                            ec.message.addPublic("Credit card has not been updated due to a verification issue", "danger");
 
                             return;
                         }
@@ -458,92 +459,6 @@ along with this software (see the LICENSE.md file). If not, see
                         if (validationErrors) for (def error in validationErrors)
                             ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
                     }
-                }
-            ]]></script>
-        </actions>
-    </service>
-
-    <service verb="update" noun="PaymentMethod">
-        <description>
-            The service updates expiration date of a credit card stored in Braintree vault.
-        </description>
-        <in-parameters>
-            <parameter name="paymentMethodId" required="true"/>
-            <parameter name="expireMonth" required="true"/>
-            <parameter name="expireYear" required="true"/>
-            <parameter name="cardSecurityCode"/>
-        </in-parameters>
-        <actions>
-            <entity-find-one entity-name="mantle.account.method.PaymentMethod" value-field="paymentMethod"/>
-            <!-- make sure we have a credit card payment method linked to Braintree -->
-            <if condition="paymentMethod.paymentMethodTypeEnumId != 'PmtCreditCard'">
-                <log level="warn" message="Payment method ${paymentMethodId} is not a credit card method and expiration date cannot be updated."/>
-                <script>ec.message.addError("The payment method is not a credit card method and expiration date cannot be updated")</script>
-                <return/>
-            </if>
-            <!-- see if associated PaymentMethod has a paymentGatewayConfigId -->
-            <set field="paymentGatewayConfigId" from="paymentMethod?.paymentGatewayConfigId"/>
-            <if condition="paymentGatewayConfigId &amp;&amp; paymentGatewayConfigId != ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')">
-                <log level="warn" message="Payment method ${paymentMethodId} is not a Braintree payment method."/>
-                <script>ec.message.addError("Payment method is not a Braintree payment method")</script>
-                <return/>
-            </if>
-            <!-- then try from BraintreeVaultPaymentGatewayConfigId preference -->
-            <if condition="!paymentGatewayConfigId">
-                <set field="paymentGatewayConfigId" from="ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')"/></if>
-            <if condition="!paymentGatewayConfigId"><log level="warn" message="In update#PaymentMethod no paymentGatewayConfigId specified or BraintreeVaultPaymentGatewayConfigId user preference found"/><return/></if>
-            <entity-find-one entity-name="braintree.PaymentGatewayBraintree" value-field="pgan"/>
-            <if condition="pgan == null">
-                <!-- this will happen regularly when PaymentMethod.paymentGatewayConfigId is for another gateway -->
-                <log message="Not updating payment method ${paymentMethodId} from Braintree, no PaymentGatewayBraintree found with ID ${paymentGatewayConfigId}"/>
-                <return/>
-            </if>
-
-            <script><![CDATA[
-                String paymentMethodToken = paymentMethod.gatewayCimId;
-                if (paymentMethodToken) {
-                    com.braintreegateway.BraintreeGateway gateway = mantle.braintree.BraintreeGatewayFactory.getInstance(paymentGatewayConfigId, ec)
-                    com.braintreegateway.PaymentMethodRequest updateRequest = new com.braintreegateway.PaymentMethodRequest()
-                            .expirationMonth(expireMonth)
-                            .expirationYear(expireYear)
-                    if (cardSecurityCode) updateRequest = updateRequest.cvv(cardSecurityCode)
-
-                    try {
-                        com.braintreegateway.Result result = gateway.paymentMethod().update(paymentMethodToken, updateRequest)
-                        if (result.isSuccess()) {
-                            EntityValue creditCard = paymentMethod.findRelatedOne("mantle.account.method.CreditCard", false, true)
-                            if (creditCard) creditCard.set("expireDate", "${expireMonth}/${expireYear}").store()
-
-                            ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
-                                    paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
-                                    paymentMethodId:paymentMethodId, transactionDate:ec.user.nowTimestamp,
-                                    reasonMessage:"Expiration date is updated to ${expireMonth}/${expireYear}",
-                                    resultSuccess:'Y', resultError:'N']).call()
-
-                        } else {
-                            ec.service.sync().name("create#mantle.account.method.PaymentGatewayResponse").parameters([
-                                    paymentGatewayConfigId:paymentGatewayConfigId, paymentOperationEnumId:"PgoStoreCim",
-                                    paymentMethodId:paymentMethodId, transactionDate:ec.user.nowTimestamp,
-                                    reasonMessage:result.message, resultSuccess:'N', resultError:'Y']).call()
-
-                            List validationErrors = result.errors.allDeepValidationErrors
-                            if (validationErrors) for (def error in validationErrors)
-                                    ec.message.addValidationError(null, error.attribute, null, "${error.message} [${error.code}]", null)
-
-                            ec.logger.error("Updating payment method ${paymentMethodId} failed with error: " + result.message);
-                            ec.message.addError(result.message);
-
-                            return;
-                        }
-                    } catch (com.braintreegateway.exceptions.NotFoundException e) {
-                        ec.message.addError(e.message);
-                        return;
-                    } catch (com.braintreegateway.exceptions.TimeoutException e) {
-                        ec.message.addError(e.message);
-                        return;
-                    }
-                } else {
-                    ec.message.addError("No payment token on the payment method")
                 }
             ]]></script>
         </actions>
