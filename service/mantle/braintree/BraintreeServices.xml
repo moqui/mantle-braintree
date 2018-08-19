@@ -33,10 +33,35 @@ along with this software (see the LICENSE.md file). If not, see
     </service>
 
 
+    <service verb="get" noun="PaymentGatewayConfig">
+        <in-parameters>
+            <parameter name="paymentMethod" type="EntityValue"/>
+            <parameter name="paymentGatewayConfigId"/>
+        </in-parameters>
+        <out-parameters><parameter name="paymentGatewayConfigId"/></out-parameters>
+        <actions>
+            <!-- see if associated PaymentMethod has a paymentGatewayConfigId -->
+            <if condition="!paymentGatewayConfigId"><set field="paymentGatewayConfigId" from="paymentMethod?.paymentGatewayConfigId"/></if>
+            <!-- then try from PartySetting VaultPaymentGatewayConfigId if PaymentMethod.ownerPartyId is owned by an internal org (Party.ownerPartyId) -->
+            <if condition="!paymentGatewayConfigId &amp;&amp; paymentMethod?.ownerPartyId">
+                <set field="ownerParty" from="paymentMethod.ownerParty"/>
+                <if condition="ownerParty?.ownerPartyId">
+                    <service-call name="mantle.party.PartyServices.get#PartySettingValue" out-map="ptySettingOut"
+                            in-map="[partyId:ownerParty.ownerPartyId, partySettingTypeId:'VaultPaymentGatewayConfigId']"/>
+                    <set field="paymentGatewayConfigId" from="ptySettingOut?.settingValue"/>
+                </if>
+            </if>
+            <!-- then try from BraintreeVaultPaymentGatewayConfigId preference -->
+            <if condition="!paymentGatewayConfigId">
+                <set field="paymentGatewayConfigId" from="ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')"/></if>
+        </actions>
+    </service>
+
     <service verb="create" noun="PaymentMethodFromNonce">
         <in-parameters>
             <parameter name="partyId" required="true"/>
             <parameter name="nonce" required="true"/>
+            <parameter name="productStoreId"><description>Optional but recommended to lookup settings</description></parameter>
             <parameter name="paymentId"><description>If specified will associate PaymentGatewayResponse with the Payment</description></parameter>
             <parameter name="paymentGatewayConfigId"><description>If not specified gets from BraintreeVaultPaymentGatewayConfigId user preference</description></parameter>
             <parameter name="postalContactMechId"/>
@@ -45,6 +70,17 @@ along with this software (see the LICENSE.md file). If not, see
         </in-parameters>
         <out-parameters><parameter name="paymentMethodId"/></out-parameters>
         <actions>
+            <if condition="!paymentGatewayConfigId &amp;&amp; productStoreId">
+                <!-- TODO: support store level setting, and other store settings? -->
+
+                <!-- see if store org has gateway setting -->
+                <entity-find-one entity-name="mantle.product.store.ProductStore" value-field="productStore"/>
+                <if condition="productStore?.organizationPartyId">
+                    <service-call name="mantle.party.PartyServices.get#PartySettingValue" out-map="ptySettingOut"
+                            in-map="[partyId:productStore.organizationPartyId, partySettingTypeId:'VaultPaymentGatewayConfigId']"/>
+                    <set field="paymentGatewayConfigId" from="ptySettingOut?.settingValue"/>
+                </if>
+            </if>
             <!-- if none specified get from BraintreeVaultPaymentGatewayConfigId preference -->
             <if condition="!paymentGatewayConfigId">
                 <set field="paymentGatewayConfigId" from="ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')"/></if>
@@ -232,12 +268,9 @@ along with this software (see the LICENSE.md file). If not, see
             <entity-find-one entity-name="mantle.account.method.PaymentMethod" value-field="paymentMethod" for-update="true"/>
             <set field="cvvCode" from="validateSecurityCode ?: creditCard.cardSecurityCode"/>
 
-            <!-- see if associated PaymentMethod has a paymentGatewayConfigId -->
-            <if condition="!paymentGatewayConfigId"><set field="paymentGatewayConfigId" from="paymentMethod?.paymentGatewayConfigId"/></if>
-            <!-- then try from BraintreeVaultPaymentGatewayConfigId preference -->
-            <if condition="!paymentGatewayConfigId">
-                <set field="paymentGatewayConfigId" from="ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')"/></if>
+            <service-call name="mantle.braintree.BraintreeServices.get#PaymentGatewayConfig" in-map="context" out-map="context"/>
             <if condition="!paymentGatewayConfigId"><log level="warn" message="In store#CustomerPaymentMethod no paymentGatewayConfigId specified or BraintreeVaultPaymentGatewayConfigId user preference found"/><return/></if>
+
             <entity-find-one entity-name="braintree.PaymentGatewayBraintree" value-field="pgan"/>
             <if condition="pgan == null">
                 <!-- this will happen regularly when PaymentMethod.paymentGatewayConfigId is for another gateway -->
@@ -419,13 +452,11 @@ along with this software (see the LICENSE.md file). If not, see
     <service verb="delete" noun="CustomerPaymentMethod">
         <in-parameters><parameter name="paymentMethodId"/></in-parameters>
         <actions>
-            <entity-find-one entity-name="mantle.account.method.PaymentMethod" value-field="paymentMethod"/>
-            <!-- see if associated PaymentMethod has a paymentGatewayConfigId -->
-            <set field="paymentGatewayConfigId" from="paymentMethod?.paymentGatewayConfigId"/>
-            <!-- then try from BraintreeVaultPaymentGatewayConfigId preference -->
-            <if condition="!paymentGatewayConfigId">
-                <set field="paymentGatewayConfigId" from="ec.user.getPreference('BraintreeVaultPaymentGatewayConfigId')"/></if>
+            <entity-find-one entity-name="mantle.account.method.PaymentMethod" value-field="paymentMethod" for-update="true"/>
+
+            <service-call name="mantle.braintree.BraintreeServices.get#PaymentGatewayConfig" in-map="context" out-map="context"/>
             <if condition="!paymentGatewayConfigId"><log level="warn" message="In delete#CustomerPaymentMethod no paymentGatewayConfigId specified or BraintreeVaultPaymentGatewayConfigId user preference found"/><return/></if>
+
             <entity-find-one entity-name="braintree.PaymentGatewayBraintree" value-field="pgan"/>
             <if condition="pgan == null">
                 <!-- this will happen regularly when PaymentMethod.paymentGatewayConfigId is for another gateway -->
